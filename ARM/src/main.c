@@ -458,16 +458,19 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 
     /* Initialize the filesystem */
     romfs_init(context->flashHandle);
-
+    
     /* Check the filesystem */
     fsckOk = romfs_fsck(1, &fsckRepaired);
-    if (fsckOk != FS_OK) {
+
+    if ((fsckOk == FS_OK) || ((fsckOk != FS_OK) && (fsckRepaired == true))) {
+        /* Hook the internal filesystem into the stdio libraries */
+        device = fs_dev_romfs_device();
+        fsdResult = fs_devman_register("wo:", device, NULL);
+    }
+    
+    if(fsckOk != FS_OK) {
         printf("Filesystem corrupt: %s Repaired\n", fsckRepaired ? "" : "Not");
     }
-
-    /* Hook the internal filesystem into the stdio libraries */
-    device = fs_dev_romfs_device();
-    fsdResult = fs_devman_register("wo:", device, NULL);
 
     /* Open the SDCARD driver */
     sdcardResult = sdcard_open(SDCARD0, &context->sdcardHandle);

@@ -442,7 +442,14 @@ void shell_format(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     printf("Be patient, this may take a while.\n");
     printf("Formatting...\n");
-    romfs_format(all);
+    
+    if(romfs_fsck(1, NULL) == FS_OK) {
+        romfs_format(all);
+    }
+    else {
+        romfs_format(true); 
+    }
+    
     printf("Done.\n");
 }
 
@@ -715,13 +722,19 @@ void shell_df( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
    u32 size, used;
    u32 err;
-
-   printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
-   err = romfs_full(&size, &used);
-   if (err > 0) {
-      printf("%-10s %10u %10u %10u %5u\n", "wo:",
-        (unsigned)size, (unsigned)used, (unsigned)(size - used),
-        (unsigned)((100 * used) / size));
+   
+   if (romfs_fsck(1, NULL) == FS_OK) {
+       printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
+       err = romfs_full(&size, &used);
+       if (err > 0) {
+           printf("%-10s %10u %10u %10u %5u\n", "wo:",
+               (unsigned)size, (unsigned)used, (unsigned)(size - used),
+               (unsigned)((100 * used) / size));
+       }
+   }
+   else
+   {
+       printf("Cannot verify disk full status. Please check disk status by running fsck first.\n");
    }
 }
 
@@ -1067,6 +1080,7 @@ void shell_fsck(SHELL_CONTEXT *ctx, int argc, char **argv)
       printf("Filesystem OK\n");
    } else {
       printf("Filesystem corrupt: %s Repaired\n", repaired ? "" : "Not");
+      printf("You can attempt to repair Filesystem by running the format command.\n");
    }
 }
 
