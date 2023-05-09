@@ -1,0 +1,373 @@
+nafae-sam-audio-starter networking-1.0.0
+Copyright 2023 Analog Devices, Inc.
+
+The main license for this software is identified in the LICENSE file.
+
+This product includes third party IP identified below:
+
+Components:
+
+CLD USB Audio 2.0 Library v1.00 : ADI-CLD License
+elua's elua v0.9 : MIT License
+FatFs Module R0.14b : FatFs License
+FreeRTOS Real Time Kernel V10.2.1 : MIT License
+libtelnet 0.23 : Public Domain
+linenoise 1.0 : BSD 2-clause "Simplified" License
+lwIP STABLE-2_1_2_RELEASE : BSD 3-clause "New" or "Revised" License
+menie.org/georges/crc16 1.0 : BSD 3-clause "New" or "Revised" License
+PortAudio 190600.20161030 : MIT License
+rhempel/umm_malloc v1.0.1 : MIT License
+Yxml - A small, fast and correct* XML parser master-20151027 : MIT License
+
+Licenses:
+
+--------------------------------------------------------------------------------
+CLD USB Audio 2.0 Library v1.00
+License: ADI-CLD License
+
+
+
+License: ADI-CLD License
+Copyright (c) 2018-2019 Closed Loop Design, LLC
+
+This software is supplied "AS IS" without any warranties, express, implied
+or statutory, including but not limited to the implied warranties of
+fitness for purpose, satisfactory quality and non-infringement. Closed
+Loop Design LLC extends you a royalty-free right to use, reproduce and
+distribute this source file as well as executable files created using
+this source file for use with Analog Devices SC5xx family processors
+only. Nothing else gives you the right to use this source file.
+
+
+
+--------------------------------------------------------------------------------
+elua's elua v0.9
+License: MIT License
+Origin: https://github.com/elua/elua
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+The MIT License
+
+Copyright (c) 2007, 2008, 2009, 2010 Dado Sutter and Bogdan Marinescu
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to
+deal in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE
+
+
+--------------------------------------------------------------------------------
+FatFs Module R0.14b
+License: FatFs License
+Origin: http://elm-chan.org/fsw/ff/arc/ff14b.zip
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: FatFs License
+FatFs License
+=============
+
+FatFs module is a generic FAT file system module for small embedded systems. This
+is a free software that opened for education, research and commercial
+developments under license policy of following trems.
+
+Copyright (C) 2013, ChaN, all right reserved.
+
+  * The FatFs module is a free software and there is NO WARRANTY.
+
+  *  No restriction on use. You can use, modify and redistribute it for personal,
+    non-profit or commercial products UNDER YOUR RESPONSIBILITY.
+
+  * Redistributions of source code must retain the above copyright notice.
+
+
+--------------------------------------------------------------------------------
+FreeRTOS Real Time Kernel V10.2.1
+License: MIT License
+Origin: https://github.com/FreeRTOS/FreeRTOS
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+-------------
+
+
+
+Copyright (C) 2019 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
+
+--------------------------------------------------------------------------------
+libtelnet 0.23
+License: Public Domain
+Origin: http://github.com/seanmiddleditch/libtelnet
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: Public Domain
+Public domain code is not subject to any license.
+
+
+--------------------------------------------------------------------------------
+linenoise 1.0
+License: BSD 2-clause "Simplified" License
+Origin: https://github.com/antirez/linenoise/tree/1.0
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 2-clause "Simplified" License
+SPDX-License-Identifier: BSD-2-Clause
+Copyright (c) 2010-2014, Salvatore Sanfilippo <antirez at gmail dot com>
+Copyright (c) 2010-2013, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
+
+
+--------------------------------------------------------------------------------
+lwIP STABLE-2_1_2_RELEASE
+License: BSD 3-clause "New" or "Revised" License
+Origin: https://github.com/lwip-tcpip/lwip
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 3-clause "New" or "Revised" License
+SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2001, 2002 Swedish Institute of Computer Science.
+ * All rights reserved. 
+ * 
+ *
+
+Redistribution and use in source and binary forms, with or without modification, 
+ * are permitted provided that the following conditions are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ * 3. The name of the author may not be used to endorse or promote products
+ *    derived from this software without specific prior written permission. 
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED 
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
+ * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT 
+ * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT 
+ * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING 
+ * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY 
+ * OF SUCH DAMAGE
+
+
+--------------------------------------------------------------------------------
+menie.org/georges/crc16 1.0
+License: BSD 3-clause "New" or "Revised" License
+Origin: https://www.menie.org/georges/embedded/crc16.html
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 3-clause "New" or "Revised" License
+SPDX-License-Identifier: BSD-3-Clause
+Copyright (c) 2001-2021 Georges Menie (www.menie.org)
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+  * Neither the name of the <ORGANIZATION> nor the names of its contributors may
+    be used to endorse or promote products derived from this software without
+    specific prior written permission.
+
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+--------------------------------------------------------------------------------
+PortAudio 190600.20161030
+License: MIT License
+Origin: http://www.portaudio.com/download.html
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+* Latest version available at: http://www.portaudio.com
+ *
+ * Copyright (c) 1999-2006 Ross Bencina and Phil Burk
+ *
+ *
+
+Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files
+ * (the "Software"), to deal in the Software without restriction,
+ * including without limitation the rights to use, copy, modify, merge,
+ * publish, distribute, sublicense, and/or sell copies of the Software,
+ * and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+ * IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
+ * ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+ * CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
+
+--------------------------------------------------------------------------------
+rhempel/umm_malloc v1.0.1
+License: MIT License
+Origin: https://github.com/rhempel/umm_malloc
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+The MIT License
+===============
+
+Copyright (c) 2015 Ralph Hempel
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in the
+Software without restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the
+Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+--------------------------------------------------------------------------------
+Yxml - A small, fast and correct* XML parser master-20151027
+License: MIT License
+Origin: https://g.blicky.net/yxml.git/
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+Copyright (c) 2013-2014 Yoran Heling
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
