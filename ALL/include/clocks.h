@@ -14,8 +14,7 @@
 
 /* TODO: Make more complete */
 #define OSC_CLK      (25000000)
-//#define CCLK       (500000000)
-#define CCLK         (475000000)
+#define CCLK         (450000000)
 #define SYSCLK       (CCLK / 2)
 #define SCLK0        (CCLK / 4)
 
