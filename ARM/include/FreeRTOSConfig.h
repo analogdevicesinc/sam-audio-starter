@@ -29,6 +29,7 @@
 #define FREERTOS_CONFIG_H
 
 #include <defSC589.h>
+#include "clocks.h"
 
 /*-----------------------------------------------------------
  * Application specific definitions.
@@ -79,7 +80,7 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
 */
 #define configAPPLICATION_ALLOCATED_HEAP        0
 #define configSUPPORT_STATIC_ALLOCATION         0
-#define configCPU_CLOCK_HZ                      500000000
+#define configCPU_CLOCK_HZ                      CCLK
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
 #define configUSE_TICKLESS_IDLE                 0
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 )
