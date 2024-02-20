@@ -66,19 +66,19 @@ const adi_mmu_AbstractPageEntry _adi_mmu_absPageTable[] =
 
     /* L2 SRAM */
 #if defined(SAE_IPC)
-    { 0x20080000u, 0x2008EFFFu, ADI_MMU_RW_STRONGLY_ORDERED }, /* 60KB SAE */
+    { 0x20080000u, 0x200A1FFFu, ADI_MMU_RW_STRONGLY_ORDERED }, /* 136KB SAE */
 #else
     { 0x20080000u, 0x20080FFFu, ADI_MMU_RW_STRONGLY_ORDERED }, /* 4KB ICC */
     { 0x20081000u, 0x20081FFFu, ADI_MMU_RW_UNCACHED         }, /* 4KB MCAPI ARM */
     { 0x20082000u, 0x20083FFFu, ADI_MMU_RO_UNCACHED         }, /* 8KB MCAPI SHARC */
 #endif
-    { 0x2008F000u, 0x20092FFFu, ADI_MMU_RW_UNCACHED         }, /* 16KB ARM uncached L2 */
+    { 0x200A2000u, 0x200A3FFFu, ADI_MMU_RW_UNCACHED         }, /* 8KB ARM uncached L2 */
 #if defined(__ADSPSC582__)
     { 0x20088000u, 0x200A3FFFu, ADI_MMU_WB_CACHED           }, /* 112KB ARM cached L2 */
     { 0x200A4000u, 0x200BFFFFu, SHARC_L2                    }, /* 104KB SHARC0, & 8KB boot code working area */
 #else
-    { 0x20093000u, 0x2009FFFFu, ADI_MMU_WB_CACHED           }, /* 52KB ARM cached L2 */
-    { 0x200A0000u, 0x200BFFFFu, SHARC_L2                    }, /* 120KB SHARC1, SHARC0, & 8KB boot code working area */
+    { 0x200A4000u, 0x200ABFFFu, ADI_MMU_WB_CACHED           }, /* 32KB ARM cached L2 */
+    { 0x200AC000u, 0x200BFFFFu, SHARC_L2                    }, /* 80KB SHARC1, SHARC0, & 8KB boot code working area */
 #endif
 
     /* Boot ROM1 */

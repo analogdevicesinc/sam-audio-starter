@@ -40,7 +40,7 @@ portTASK_FUNCTION(a2bSlaveTask, pvParameters)
     bool ok;
 
     while (1) {
-        if (context->a2bmode == A2B_BUS_MODE_SLAVE) {
+        if (context->a2bmode == A2B_BUS_MODE_SUB) {
             A2B_REG = AD242X_NODE;
             result = twi_writeRead(context->ad2425TwiHandle, AD2425W_SAM_I2C_ADDR,
                 &A2B_REG, sizeof(A2B_REG),

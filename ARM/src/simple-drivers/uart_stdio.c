@@ -115,11 +115,6 @@ static long uart_stdio_seek(int fh, long pos, int dir)
     return(-1);
 }
 
-static int uart_stdio_isatty(int fh)
-{
-    return(0);
-}
-
 static int uart_stdio_unlink(const char *path)
 {
     return(-1);
@@ -134,6 +129,11 @@ static int uart_stdio_rename(const char *oldpath, const char *newpath)
  * ARM specific devio functions and structs
  **********************************************************************/
 #if defined(__ADSPARM__)
+
+static int uart_stdio_isatty(int fh)
+{
+    return(0);
+}
 
 static int uart_stdio_system(const char *cmd)
 {

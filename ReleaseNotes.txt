@@ -1,0 +1,46 @@
+Hardware         Software          Version
+---------------  ----------------- -------
+ADZS-SC589-MINI  SAM Audio Starter 2.0.0
+
+Below is a list of the major changes from the baseline.
+Note that minor/refactor changes will not be listed. 
+
+New Features
+------------
+FAESWPROJ-99  -  Add pushbutton support for shell commands
+FAESWPROJ-104 -  Remove ROMFS/WOFS support and add SPIFFS support
+FAESWPROJ-105 -  Makefile optimization and cleanup
+FAESWPROJ-94  -  Add mixing capability to shell 'route' command
+FAESWPROJ-67  -  Update FreeRTOS version to v10.4.6
+FAESWPROJ-94  -  Add edit command to shell commands
+FAESWPROJ-95  -  A2B Configuration reusable component support
+FAESWPROJ-20  -  Add CCES build option to build in CCES as a secondary option (command line still available)
+No ticket     -  Various simple-driver and service updates to support other processors and cleanup/refactor\
+No ticket     -  Add support for SAM V2 hardware
+No ticket     -  USB and wave audio properties update
+No ticket     -  Removal of bootloader source code (note that it is still available in v1.0.0 and eventually will be available in a standalone project)
+
+Bug Fixes
+---------
+FAESWPROJ-123 -  Fix to high CPU utilization and distortion with higher channel count
+FAESWPROJ-111 -  Can't flash bootloader while JP1 is connected on 2.0/2.1 hardware
+FAESWPROJ-108 -  Some 2.1 hardware does not boot due to incorrect CPU clock setting
+FAESPROJ-85   -  Some shell characters are dropped
+
+Known Issues
+-------------
+FAESWPROJ-124 - Incorrect CPU reporting when optimizations are enabled
+
+Compatibility Issues
+--------------------
+- Due to the USB and wave audio properties update, users may experience no audio
+  on USB at first connect. This is a Windows issue. Please follow workaround steps 
+  from the Wiki when switching to this version of software: 
+  https://wiki.analog.com/resources/tools-software/sharc-audio-module/advanced-audio-projects/appendix-b#no_sound_on_usb_audio_when_changing_code_versions
+
+
+
+
+
+
+

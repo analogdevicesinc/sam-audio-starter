@@ -81,11 +81,12 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
 #define configAPPLICATION_ALLOCATED_HEAP        0
 #define configSUPPORT_STATIC_ALLOCATION         0
 #define configCPU_CLOCK_HZ                      CCLK
+#define configSCLK0_HZ                          SCLK0
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
 #define configUSE_TICKLESS_IDLE                 0
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000 )
 #define configUSE_PREEMPTION                    1
-#define configUSE_IDLE_HOOK                     1
+#define configUSE_IDLE_HOOK                     0
 #define configUSE_TICK_HOOK                     0
 #define configMAX_PRIORITIES                    ( 7 )
 #define configMINIMAL_STACK_SIZE                ( ( unsigned short ) 512 )
@@ -102,7 +103,7 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
 #define configUSE_APPLICATION_TASK_TAG          0
 #define configUSE_COUNTING_SEMAPHORES           1
 #define configUSE_QUEUE_SETS                    1
-#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 2
+#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 16
 
 /*
  * Application and minimal OSAL TLS defines (not used by FreeRTOS).
@@ -118,10 +119,6 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
 
 /* Pre-defined application TLS pointers */
 #define configSTDIO_APP_TLS_POINTER (configSTART_APP_TLS_POINTERS + 0)
-
-/* SC5xx GP Timer definitions (see FreeRTOSv9.0.0/portable/CCES/ARM_CA5/timer.c) */
-#define configSC5xx_CGU0_SSYSEL_DIVISOR         2
-#define configSC5xx_CGU0_S0SEL_DIVISOR          2
 
 /* Co-routine definitions. */
 #define configUSE_CO_ROUTINES                   0

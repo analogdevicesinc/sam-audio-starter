@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -142,6 +142,11 @@ extern "C"{
 #endif
 
 /*!****************************************************************
+ *  @brief Simple UART time callback for non-FreeRTOS systems.
+ *****************************************************************/
+typedef uint32_t (*UART_SIMPLE_GET_TIME_MS_FN)(void);
+
+/*!****************************************************************
  *  @brief Simple UART driver initialization routine.
  *
  * This function initializes the simple UART driver.  It should be
@@ -254,6 +259,22 @@ UART_SIMPLE_RESULT uart_setProtocol(sUART *uartHandle,
  ******************************************************************/
 UART_SIMPLE_RESULT uart_setTimeouts(sUART *uartHandle,
     int32_t readTimeout, int32_t writeTimeout);
+
+/*!****************************************************************
+ * @brief Simple UART register get time function.
+ *
+ * This function sets a call back for retrieving the current time
+ * in non-FreeRTOS systems.
+ * *
+ * @param [in] uartHandle      A handle to a UART device
+ * @param [in] readTimeout     Read timeout in mS
+ * @param [in] writeTimeout    Write timeout in mS
+ *
+ * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
+ *         an error.
+ ******************************************************************/
+UART_SIMPLE_RESULT uart_setGetTimeFn(sUART *uartHandle,
+    UART_SIMPLE_GET_TIME_MS_FN getTimeFn);
 
 /*!****************************************************************
  * @brief Simple UART read.

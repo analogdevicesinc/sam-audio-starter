@@ -82,7 +82,7 @@ static void pcg_route_clk( PCG_RESOURCE pcg, uint32_t pin ) {
             }
             break;
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
         case PCG_C:
             switch(pin) {
                 case 1: SRU2(DAI1_PB01_O, PCG0_EXTCLKC_I); break;
@@ -193,7 +193,7 @@ static void pcg_route_fs( PCG_RESOURCE pcg, uint32_t pin ) {
             }
             break;
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
 
         case PCG_C:
             switch(pin) {
@@ -311,7 +311,7 @@ PCG_SIMPLE_RESULT pcg_open( PCG_SIMPLE_CONFIG * config) {
             *pREG_PCG0_CTLB0 = reg_ctrl0_2;
             break;
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
         case PCG_C:
             *pREG_PCG0_SYNC2 = reg_sync;
             *pREG_PCG0_CTLC1 = reg_ctrl1;

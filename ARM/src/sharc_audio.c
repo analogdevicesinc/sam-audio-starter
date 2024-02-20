@@ -104,10 +104,12 @@ void sharcAudio(APP_CONTEXT *context, unsigned mask, SAE_MSG_BUFFER *msg,
     ready = clock_domain_ready(context, cd);
     if (ready) {
         msg = sae_createMsgBuffer(sae, sizeof(*ipcMsg), (void **)&ipcMsg);
-        ipcMsg->type = IPC_TYPE_PROCESS_AUDIO;
-        ipcMsg->process.clockDomain = cd;
-        sendMsg(sae, msg);
-        sae_unRefMsgBuffer(sae, msg);
+        if (msg) {
+            ipcMsg->type = IPC_TYPE_PROCESS_AUDIO;
+            ipcMsg->process.clockDomain = cd;
+            sendMsg(sae, msg);
+            sae_unRefMsgBuffer(sae, msg);
+        }
     }
 }
 

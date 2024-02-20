@@ -34,22 +34,15 @@
 #include "ipc.h"
 #include "wav_file.h"
 #include "clock_domain_defs.h"
+#include "task_cfg.h"
+#include "spiffs.h"
 
 /* Misc defines */
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
-/* The priorities assigned to the tasks (higher number == higher prio). */
-#define HOUSEKEEPING_PRIORITY       (tskIDLE_PRIORITY + 2)
-#define STARTUP_TASK_LOW_PRIORITY   (tskIDLE_PRIORITY + 2)
-#define UAC20_TASK_PRIORITY         (tskIDLE_PRIORITY + 3)
-#define WAV_TASK_PRIORITY           (tskIDLE_PRIORITY + 3)
-#define STARTUP_TASK_HIGH_PRIORITY  (tskIDLE_PRIORITY + 5)
-
-/* The some shell commands require a little more stack (startup task). */
-#define STARTUP_TASK_STACK_SIZE    (configMINIMAL_STACK_SIZE + 8192)
-#define UAC20_TASK_STACK_SIZE      (configMINIMAL_STACK_SIZE + 128)
-#define WAV_TASK_STACK_SIZE        (configMINIMAL_STACK_SIZE + 128)
-#define GENERIC_TASK_STACK_SIZE    (configMINIMAL_STACK_SIZE)
+/* SAM HW Versions */
+#define SAM_VERSION_1  100
+#define SAM_VERSION_2  200
 
 /*
  * WARNING: Do not change SYSTEM_AUDIO_TYPE from int32_t
@@ -57,21 +50,22 @@
  */
 #define SYSTEM_MCLK_RATE               (24576000)
 #define SYSTEM_SAMPLE_RATE             (48000)
-#define SYSTEM_BLOCK_SIZE              (32)
+#define SYSTEM_BLOCK_SIZE              (64)
 #define SYSTEM_AUDIO_TYPE              int32_t
 #define SYSTEM_MAX_CHANNELS            (32)
+#define WAV_MAX_CHANNELS               (64)
 
-#define USB_DEFAULT_IN_AUDIO_CHANNELS  (32)       /* USB IN endpoint audio */
-#define USB_DEFAULT_OUT_AUDIO_CHANNELS (32)       /* USB OUT endpoint audio */
-#define USB_DEFAULT_WORD_SIZE_BITS     (32)
+#define USB_DEFAULT_IN_AUDIO_CHANNELS  (16)       /* USB IN endpoint audio */
+#define USB_DEFAULT_OUT_AUDIO_CHANNELS (16)       /* USB OUT endpoint audio */
+#define USB_DEFAULT_WORD_SIZE          (sizeof(int16_t))
 #define USB_TIMER                      (0)
 #define USB_VENDOR_ID                  (0x064b)  /* Analog Devices Vendor ID */
 #define USB_PRODUCT_ID                 (0x0007)  /* CLD UAC+CDC */
 #define USB_MFG_STRING                 "Analog Devices, Inc."
-#define USB_PRODUCT_STRING             "Audio v2.0 Device"
+#define USB_PRODUCT_STRING             "Audio v2.0 Device (SAM 16x16)"
 #define USB_SERIAL_NUMBER_STRING       NULL
-#define USB_OUT_RING_BUFF_FRAMES       1024
-#define USB_IN_RING_BUFF_FRAMES        1024
+#define USB_OUT_RING_BUFF_FRAMES       (4 * SYSTEM_BLOCK_SIZE)
+#define USB_IN_RING_BUFF_FRAMES        (4 * SYSTEM_BLOCK_SIZE)
 #define USB_OUT_RING_BUFF_FILL         (USB_OUT_RING_BUFF_FRAMES / 2)
 #define USB_IN_RING_BUFF_FILL          (USB_IN_RING_BUFF_FRAMES / 2)
 
@@ -91,10 +85,13 @@
 
 #define AD2425W_SAM_I2C_ADDR           (0x68)
 
+#define SPIFFS_VOL_NAME                "sf:"
+#define SDCARD_VOL_NAME                "sd:"
+
 typedef enum A2B_BUS_MODE {
     A2B_BUS_MODE_UNKNOWN = 0,
-    A2B_BUS_MODE_MASTER,
-    A2B_BUS_MODE_SLAVE
+    A2B_BUS_MODE_MAIN,
+    A2B_BUS_MODE_SUB
 } A2B_BUS_MODE;
 
 #define SYSTEM_I2SGCFG                 (0x04)
@@ -134,7 +131,7 @@ typedef struct _USB_AUDIO_STATS USB_AUDIO_STATS;
 typedef struct APP_CFG {
     int usbOutChannels;
     int usbInChannels;
-    int usbWordSizeBits;
+    int usbWordSize;
     bool usbRateFeedbackHack;
 } APP_CFG;
 
@@ -144,6 +141,12 @@ typedef struct APP_CFG {
  * modules and subsystems.
  */
 struct _APP_CONTEXT {
+
+    /* SAM Version */
+    int samVersion;
+
+    /* Core clock frequency */
+    uint32_t cclk;
 
     /* Device handles */
     sUART *stdioHandle;
@@ -162,9 +165,11 @@ struct _APP_CONTEXT {
     sSPORT *a2bSportOutHandle;
     sSPORT *a2bSportInHandle;
     sSDCARD *sdcardHandle;
+    spiffs *spiffsHandle;
 
     /* SHARC status */
     volatile bool sharc0Ready;
+    volatile bool sharc1Ready;
 
     /* Shell context */
     SHELL_CONTEXT shell;
@@ -191,6 +196,7 @@ struct _APP_CONTEXT {
     /* Task handles (used in 'stacks' command) */
     TaskHandle_t houseKeepingTaskHandle;
     TaskHandle_t pollStorageTaskHandle;
+    TaskHandle_t pushButtonTaskHandle;
     TaskHandle_t uac2TaskHandle;
     TaskHandle_t startupTaskHandle;
     TaskHandle_t idleTaskHandle;
@@ -245,7 +251,7 @@ struct _APP_CONTEXT {
     /* SDCARD */
     bool sdPresent;
 
-    /* Not used */
+    /* APP config */
     APP_CFG cfg;
 
     /* Current time in mS */

@@ -1,3 +1,7 @@
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>

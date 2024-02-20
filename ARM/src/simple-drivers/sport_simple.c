@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -27,7 +27,7 @@
 #include <sys/anomaly_macros_rtl.h>
 #include <services/int/adi_int.h>
 #if defined(__ADSPARM__)
-#include <adi/cortex-a5/runtime/cache/adi_cache.h>
+#include <runtime/cache/adi_cache.h>
 #else
 #include <sys/cache.h>
 #endif
@@ -73,7 +73,7 @@ volatile uint32_t *SPORT_CTL[SPORT_END] = {
     pREG_SPORT2_CTL_A, pREG_SPORT2_CTL_B,
     pREG_SPORT3_CTL_A, pREG_SPORT3_CTL_B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_SPORT4_CTL_A, pREG_SPORT4_CTL_B,
     pREG_SPORT5_CTL_A, pREG_SPORT5_CTL_B,
     pREG_SPORT6_CTL_A, pREG_SPORT6_CTL_B,
@@ -87,7 +87,7 @@ volatile uint32_t *SPORT_MCTL[SPORT_END] = {
     pREG_SPORT2_MCTL_A, pREG_SPORT2_MCTL_B,
     pREG_SPORT3_MCTL_A, pREG_SPORT3_MCTL_B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_SPORT4_MCTL_A, pREG_SPORT4_MCTL_B,
     pREG_SPORT5_MCTL_A, pREG_SPORT5_MCTL_B,
     pREG_SPORT6_MCTL_A, pREG_SPORT6_MCTL_B,
@@ -101,7 +101,7 @@ volatile uint32_t *SPORT_CS0[SPORT_END] = {
     pREG_SPORT2_CS0_A, pREG_SPORT2_CS0_B,
     pREG_SPORT3_CS0_A, pREG_SPORT3_CS0_B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_SPORT4_CS0_A, pREG_SPORT4_CS0_B,
     pREG_SPORT5_CS0_A, pREG_SPORT5_CS0_B,
     pREG_SPORT6_CS0_A, pREG_SPORT6_CS0_B,
@@ -115,7 +115,7 @@ volatile uint32_t *SPORT_DIV[SPORT_END] = {
     pREG_SPORT2_DIV_A, pREG_SPORT2_DIV_B,
     pREG_SPORT3_DIV_A, pREG_SPORT3_DIV_B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_SPORT4_DIV_A, pREG_SPORT4_DIV_B,
     pREG_SPORT5_DIV_A, pREG_SPORT5_DIV_B,
     pREG_SPORT6_DIV_A, pREG_SPORT6_DIV_B,
@@ -123,31 +123,32 @@ volatile uint32_t *SPORT_DIV[SPORT_END] = {
 #endif
 };
 
-void * volatile *DMA_ADDRSTART[SPORT_END] = {
-    pREG_DMA0_ADDRSTART, pREG_DMA1_ADDRSTART,
-    pREG_DMA2_ADDRSTART, pREG_DMA3_ADDRSTART,
-    pREG_DMA4_ADDRSTART, pREG_DMA5_ADDRSTART,
-    pREG_DMA6_ADDRSTART, pREG_DMA7_ADDRSTART,
+#define VUP(x) ((volatile uint32_t *)x)
+volatile uint32_t *DMA_ADDRSTART[SPORT_END] = {
+    VUP(pREG_DMA0_ADDRSTART), VUP(pREG_DMA1_ADDRSTART),
+    VUP(pREG_DMA2_ADDRSTART), VUP(pREG_DMA3_ADDRSTART),
+    VUP(pREG_DMA4_ADDRSTART), VUP(pREG_DMA5_ADDRSTART),
+    VUP(pREG_DMA6_ADDRSTART), VUP(pREG_DMA7_ADDRSTART),
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
-    pREG_DMA10_ADDRSTART, pREG_DMA11_ADDRSTART,
-    pREG_DMA12_ADDRSTART, pREG_DMA13_ADDRSTART,
-    pREG_DMA14_ADDRSTART, pREG_DMA15_ADDRSTART,
-    pREG_DMA16_ADDRSTART, pREG_DMA17_ADDRSTART
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
+    VUP(pREG_DMA10_ADDRSTART), VUP(pREG_DMA11_ADDRSTART),
+    VUP(pREG_DMA12_ADDRSTART), VUP(pREG_DMA13_ADDRSTART),
+    VUP(pREG_DMA14_ADDRSTART), VUP(pREG_DMA15_ADDRSTART),
+    VUP(pREG_DMA16_ADDRSTART), VUP(pREG_DMA17_ADDRSTART)
 #endif
 };
 
-void * volatile *DMA_DSCPTR_NXT[SPORT_END] = {
-    pREG_DMA0_DSCPTR_NXT, pREG_DMA1_DSCPTR_NXT,
-    pREG_DMA2_DSCPTR_NXT, pREG_DMA3_DSCPTR_NXT,
-    pREG_DMA4_DSCPTR_NXT, pREG_DMA5_DSCPTR_NXT,
-    pREG_DMA6_DSCPTR_NXT, pREG_DMA7_DSCPTR_NXT,
+volatile uint32_t *DMA_DSCPTR_NXT[SPORT_END] = {
+    VUP(pREG_DMA0_DSCPTR_NXT), VUP(pREG_DMA1_DSCPTR_NXT),
+    VUP(pREG_DMA2_DSCPTR_NXT), VUP(pREG_DMA3_DSCPTR_NXT),
+    VUP(pREG_DMA4_DSCPTR_NXT), VUP(pREG_DMA5_DSCPTR_NXT),
+    VUP(pREG_DMA6_DSCPTR_NXT), VUP(pREG_DMA7_DSCPTR_NXT),
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
-    pREG_DMA10_DSCPTR_NXT, pREG_DMA11_DSCPTR_NXT,
-    pREG_DMA12_DSCPTR_NXT, pREG_DMA13_DSCPTR_NXT,
-    pREG_DMA14_DSCPTR_NXT, pREG_DMA15_DSCPTR_NXT,
-    pREG_DMA16_DSCPTR_NXT, pREG_DMA17_DSCPTR_NXT
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
+    VUP(pREG_DMA10_DSCPTR_NXT), VUP(pREG_DMA11_DSCPTR_NXT),
+    VUP(pREG_DMA12_DSCPTR_NXT), VUP(pREG_DMA13_DSCPTR_NXT),
+    VUP(pREG_DMA14_DSCPTR_NXT), VUP(pREG_DMA15_DSCPTR_NXT),
+    VUP(pREG_DMA16_DSCPTR_NXT), VUP(pREG_DMA17_DSCPTR_NXT)
 #endif
 };
 
@@ -157,7 +158,7 @@ volatile uint32_t *DMA_XCNT[SPORT_END] = {
     pREG_DMA4_XCNT, pREG_DMA5_XCNT,
     pREG_DMA6_XCNT, pREG_DMA7_XCNT,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_DMA10_XCNT, pREG_DMA11_XCNT,
     pREG_DMA12_XCNT, pREG_DMA13_XCNT,
     pREG_DMA14_XCNT, pREG_DMA15_XCNT,
@@ -171,7 +172,7 @@ volatile int32_t *DMA_XMOD[SPORT_END] = {
     pREG_DMA4_XMOD, pREG_DMA5_XMOD,
     pREG_DMA6_XMOD, pREG_DMA7_XMOD,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_DMA10_XMOD, pREG_DMA11_XMOD,
     pREG_DMA12_XMOD, pREG_DMA13_XMOD,
     pREG_DMA14_XMOD, pREG_DMA15_XMOD,
@@ -185,7 +186,7 @@ volatile uint32_t *DMA_CFG[SPORT_END] = {
     pREG_DMA4_CFG, pREG_DMA5_CFG,
     pREG_DMA6_CFG, pREG_DMA7_CFG,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_DMA10_CFG, pREG_DMA11_CFG,
     pREG_DMA12_CFG, pREG_DMA13_CFG,
     pREG_DMA14_CFG, pREG_DMA15_CFG,
@@ -199,7 +200,7 @@ volatile uint32_t *DMA_STAT[SPORT_END] = {
     pREG_DMA4_STAT, pREG_DMA5_STAT,
     pREG_DMA6_STAT, pREG_DMA7_STAT,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_DMA10_STAT, pREG_DMA11_STAT,
     pREG_DMA12_STAT, pREG_DMA13_STAT,
     pREG_DMA14_STAT, pREG_DMA15_STAT,
@@ -231,7 +232,7 @@ volatile uint32_t *SPU_SECUREP[SPORT_END] = {
     pREG_SPU0_SECUREP76, pREG_SPU0_SECUREP77,
     pREG_SPU0_SECUREP78, pREG_SPU0_SECUREP79,
     pREG_SPU0_SECUREP80, pREG_SPU0_SECUREP81,
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     pREG_SPU0_SECUREP63, pREG_SPU0_SECUREP64,
     pREG_SPU0_SECUREP65, pREG_SPU0_SECUREP66,
     pREG_SPU0_SECUREP67, pREG_SPU0_SECUREP68,
@@ -251,7 +252,7 @@ uint16_t SPORT_DMA_IRQ_ID[SPORT_END] = {
     INTR_SPORT2_A_DMA, INTR_SPORT2_B_DMA,
     INTR_SPORT3_A_DMA, INTR_SPORT3_B_DMA,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     INTR_SPORT4_A_DMA, INTR_SPORT4_B_DMA,
     INTR_SPORT5_A_DMA, INTR_SPORT5_B_DMA,
     INTR_SPORT6_A_DMA, INTR_SPORT6_B_DMA,
@@ -267,8 +268,8 @@ uint16_t SPORT_DMA_IRQ_ID[SPORT_END] = {
  * SPORT context
  **************************************************************************/
 typedef struct {
-    void *next;
-    void *start;
+    uint32_t next;
+    uint32_t start;
 } SPORT_SIMPLE_DMA_DESC;
 
 struct sSPORT {
@@ -280,8 +281,8 @@ struct sSPORT {
     volatile uint32_t *pREG_SPORT_DIV;
 
     ///< Memory mapped control registers for the SPORT DMA channel
-    void * volatile   *pREG_DMA_ADDRSTART;
-    void * volatile   *pREG_DMA_DSCPTR_NXT;
+    volatile uint32_t *pREG_DMA_ADDRSTART;
+    volatile uint32_t *pREG_DMA_DSCPTR_NXT;
     volatile uint32_t *pREG_DMA_XCNT;
     volatile int32_t  *pREG_DMA_XMOD;
     volatile uint32_t *pREG_DMA_CFG;
@@ -384,14 +385,14 @@ SPORT_SIMPLE_RESULT sport_start(sSPORT *sport, bool flush)
 
         /* Flush both ping pong buffers if transmitting */
         if ((flush) && (sport->dataDir == SPORT_SIMPLE_DATA_DIR_TX)) {
-            dataAddr = sport->dmaDescriptors[0].start;
+            dataAddr = (void *)((uintptr_t)sport->dmaDescriptors[0].start);
             /* Translate the system address back to the local address */
             dataAddr = system_to_local_addr(dataAddr);
             sport_flush_buffer(
                 sport, dataAddr, sport->dataSizeBytes,
                 ADI_FLUSH_DATA_NOINV, SPORT_SIMPLE_NO_FORCE_FLUSH
             );
-            dataAddr = sport->dmaDescriptors[1].start;
+            dataAddr = (void *)((uintptr_t)sport->dmaDescriptors[1].start);
             /* Translate the system address back to the local address */
             dataAddr = system_to_local_addr(dataAddr);
             sport_flush_buffer(
@@ -404,7 +405,7 @@ SPORT_SIMPLE_RESULT sport_start(sSPORT *sport, bool flush)
         sport->pp = 0;
 
         /* Start the DMA on the 'ping' buffer (pong descriptor next) */
-        *sport->pREG_DMA_DSCPTR_NXT = (void *)sport->dmaDescriptors[1].next;
+        *sport->pREG_DMA_DSCPTR_NXT = (uintptr_t)sport->dmaDescriptors[1].next;
 
         /* Enable the DMA */
         *sport->pREG_DMA_CFG |= 0x1 << BITP_DMA_CFG_EN;
@@ -745,13 +746,13 @@ static SPORT_SIMPLE_RESULT sport_config_dma(sSPORT *sport,
 
     /* Configure the DMA descriptors */
     sport->dmaDescriptors[0].next =
-        local_to_system_addr(&sport->dmaDescriptors[1]);
+        (uint32_t)((uintptr_t)local_to_system_addr(&sport->dmaDescriptors[1]));
     sport->dmaDescriptors[0].start =
-        (int32_t *)local_to_system_addr(config->dataBuffers[0]);
+        (uint32_t)((uintptr_t)local_to_system_addr(config->dataBuffers[0]));
     sport->dmaDescriptors[1].next =
-        local_to_system_addr(&sport->dmaDescriptors[0]);
+        (uint32_t)((uintptr_t)local_to_system_addr(&sport->dmaDescriptors[0]));
     sport->dmaDescriptors[1].start =
-        (int32_t *)local_to_system_addr(config->dataBuffers[1]);
+        (uint32_t)((uintptr_t)local_to_system_addr(config->dataBuffers[1]));
 
     /* Flush the DMA descriptors to memory */
     sport_flush_buffer(
@@ -954,7 +955,7 @@ static void sport_dma_irq(uint32_t id, void *usrPtr)
     if (sport->callBack) {
 
         /* Get the quiescent data buffer address */
-        dataAddr = sport->dmaDescriptors[sport->pp].start;
+        dataAddr = (uint8_t *)((uintptr_t)sport->dmaDescriptors[sport->pp].start);
 
         /* Translate the system address back to the local address */
         dataAddr = system_to_local_addr(dataAddr);

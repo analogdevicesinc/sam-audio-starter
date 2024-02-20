@@ -21,6 +21,7 @@ uint32_t getTimeStamp(void);
 void delay(unsigned ms);
 uint32_t elapsedTimeMs(uint32_t elapsed);
 time_t util_time(time_t *tloc);
+uint32_t rtosTimeMs();
 
 /* In util.c */
 void copyAndConvert(

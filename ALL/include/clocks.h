@@ -37,5 +37,6 @@
 
 /* The MSI0 SDCARD clock is derived from CGU1/DCLK */
 #define SDCLK        (DCLK_1)
+#define SDCLK_MAX    (50000000)
 
 #endif

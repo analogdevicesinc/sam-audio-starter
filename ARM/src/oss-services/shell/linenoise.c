@@ -71,6 +71,10 @@
  *
  */
 
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>

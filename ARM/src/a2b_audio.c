@@ -37,7 +37,7 @@ void a2bAudioOut(void *buffer, uint32_t size, void *usrPtr)
     }
 
     /* This is the CLOCK_DOMAIN_A2B "out" clock source in slave mode */
-    clockSource = (context->a2bmode == A2B_BUS_MODE_SLAVE);
+    clockSource = (context->a2bmode == A2B_BUS_MODE_SUB);
     sharcAudio(context, CLOCK_DOMAIN_BITM_A2B_OUT, msg, clockSource, false);
 
     /* Track ISR cycle count for CPU load */
@@ -63,7 +63,7 @@ void a2bAudioIn(void *buffer, uint32_t size, void *usrPtr)
     }
 
     /* This is the CLOCK_DOMAIN_A2B "in" clock source in slave mode */
-    clockSource = (context->a2bmode == A2B_BUS_MODE_SLAVE);
+    clockSource = (context->a2bmode == A2B_BUS_MODE_SUB);
     sharcAudio(context, CLOCK_DOMAIN_BITM_A2B_IN, msg, clockSource, true);
 
     /* Track ISR cycle count for CPU load */

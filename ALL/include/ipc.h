@@ -43,6 +43,7 @@ enum IPC_TYPE {
     IPC_TYPE_PING,
     IPC_TYPE_AUDIO,
     IPC_TYPE_SHARC0_READY,
+    IPC_TYPE_SHARC1_READY,
     IPC_TYPE_AUDIO_ROUTING,
     IPC_TYPE_CYCLES,
     IPC_TYPE_PROCESS_AUDIO
@@ -61,10 +62,8 @@ enum IPC_STREAMID {
     IPC_STREAMID_A2B_OUT,
     IPC_STREAMID_USB_RX,
     IPC_STREAMID_USB_TX,
-    IPC_STREAM_ID_WAVE_SRC,
-    IPC_STREAM_ID_WAVE_SINK,
-    IPC_STREAM_ID_RTP_IN,
-    IPC_STREAM_ID_RTP_OUT,
+    IPC_STREAM_ID_WAV_SRC,
+    IPC_STREAM_ID_WAV_SINK,
     IPC_STREAM_ID_MAX
 };
 
@@ -93,6 +92,7 @@ typedef struct _ROUTE_INFO {
     uint8_t srcOffset;
     uint8_t sinkOffset;
     uint8_t channels;
+    uint8_t mix;
     uint8_t attenuation;
 } ROUTE_INFO;
 

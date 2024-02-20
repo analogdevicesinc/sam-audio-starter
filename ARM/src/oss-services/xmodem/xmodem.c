@@ -28,6 +28,10 @@
  * $FreeBSD: src/sys/boot/arm/at91/libat91/xmodem.c,v 1.1 2006/04/19 17:16:49 imp Exp $
  */
 
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 // Modified by BogdanM for eLua
 
 #include <stddef.h>

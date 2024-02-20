@@ -13,6 +13,7 @@
 #define _fs_devman_h
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef enum _FS_DEVMAN_RESULT {
     FS_DEVMAN_ERROR = -4,
@@ -48,6 +49,18 @@ typedef struct _FS_DEVMAN_DIRENT {
   uint8_t flags;
 } FS_DEVMAN_DIRENT;
 
+
+enum _FS_DEVMAN_STAT_FLAGS {
+    FS_DEVMAN_STAT_FLAG_DIR = 1
+};
+
+typedef struct _FS_DEVMAN_STAT {
+  uint32_t fsize;
+  uint32_t ftime;
+  uint32_t fdate;
+  uint8_t flags;
+} FS_DEVMAN_STAT;
+
 /*
  * Initialize the device manager
  */
@@ -60,7 +73,8 @@ FS_DEVMAN_RESULT fs_devman_init(void);
  * All device names must terminate with a ':'.  All path names must begin
  * with a device prefix.
  */
-FS_DEVMAN_RESULT fs_devman_register(const char *name, const FS_DEVMAN_DEVICE *dev, void *usr);
+FS_DEVMAN_RESULT fs_devman_register(const char *name,
+    const FS_DEVMAN_DEVICE *dev, void *usr);
 FS_DEVMAN_RESULT fs_devman_unregister(const char *name);
 
 /*
@@ -75,5 +89,9 @@ FS_DEVMAN_RESULT fs_devman_get_default(const char **name);
 void *fs_devman_opendir(const char *dirname);
 int fs_devman_closedir(void *dir);
 FS_DEVMAN_DIRENT *fs_devman_readdir(void *dir);
+unsigned int fs_devman_get_num_devices(void);
+FS_DEVMAN_RESULT fs_devman_get_deviceName(unsigned int deviceIdx,
+    const char **devName);
+bool fs_devman_is_device_valid(char *devName);
 
 #endif

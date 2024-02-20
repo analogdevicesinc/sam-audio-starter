@@ -32,38 +32,62 @@ static void processAudio(IPC_MSG_AUDIO *audio)
 
     switch (audio->streamID) {
         case IPC_STREAMID_CODEC_IN:
-            asm("nop;");
             break;
         case IPC_STREAMID_CODEC_OUT:
-            asm("nop;");
+            break;
+        case IPC_STREAMID_SPDIF_IN:
+            break;
+        case IPC_STREAMID_SPDIF_OUT:
             break;
         case IPC_STREAMID_A2B_IN:
-            asm("nop;");
             break;
         case IPC_STREAMID_A2B_OUT:
-            asm("nop;");
             break;
         case IPC_STREAMID_USB_RX:
-            asm("nop;");
             break;
         case IPC_STREAMID_USB_TX:
-            asm("nop;");
             break;
-        case IPC_STREAM_ID_WAVE_SRC:
-            asm("nop;");
+        case IPC_STREAM_ID_WAV_SRC:
             break;
-        case IPC_STREAM_ID_WAVE_SINK:
-            asm("nop;");
-            break;
-        case IPC_STREAM_ID_RTP_IN:
-            asm("nop;");
-            break;
-        case IPC_STREAM_ID_RTP_OUT:
-            asm("nop;");
+        case IPC_STREAM_ID_WAV_SINK:
             break;
         default:
             break;
     }
+}
+
+/***********************************************************************
+ * Application IPC functions
+ **********************************************************************/
+SAE_RESULT ipcToCore(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *ipcBuffer,
+    SAE_CORE_IDX core)
+{
+    SAE_RESULT result;
+
+    result = sae_sendMsgBuffer(saeContext, ipcBuffer, core, true);
+    if (result != SAE_RESULT_OK) {
+        sae_unRefMsgBuffer(saeContext, ipcBuffer);
+    }
+
+    return(result);
+}
+
+SAE_RESULT quickIpcToCore(SAE_CONTEXT *saeContext, enum IPC_TYPE type,
+    SAE_CORE_IDX core)
+{
+    SAE_MSG_BUFFER *ipcBuffer;
+    SAE_RESULT result;
+    IPC_MSG *msg;
+
+    ipcBuffer = sae_createMsgBuffer(saeContext, sizeof(*msg), (void **)&msg);
+    if (ipcBuffer) {
+        msg->type = type;
+        result = ipcToCore(saeContext, ipcBuffer, core);
+    } else {
+        result = SAE_RESULT_ERROR;
+    }
+
+    return(result);
 }
 
 static void ipcMsgRx(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
@@ -79,10 +103,12 @@ static void ipcMsgRx(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
     switch (msg->type) {
         case IPC_TYPE_PING:
             ipcBuffer = sae_createMsgBuffer(saeContext, sizeof(*replyMsg), (void **)&replyMsg);
-            replyMsg->type = IPC_TYPE_PING;
-            result = sae_sendMsgBuffer(saeContext, ipcBuffer, SAE_CORE_IDX_0, true);
-            if (result != SAE_RESULT_OK) {
-                sae_unRefMsgBuffer(saeContext, ipcBuffer);
+            if (ipcBuffer) {
+                replyMsg->type = IPC_TYPE_PING;
+                result = sae_sendMsgBuffer(saeContext, ipcBuffer, SAE_CORE_IDX_0, true);
+                if (result != SAE_RESULT_OK) {
+                    sae_unRefMsgBuffer(saeContext, ipcBuffer);
+                }
             }
             break;
         case IPC_TYPE_AUDIO:
@@ -107,6 +133,9 @@ int main(int argc, char **argv)
 
     /* Register an IPC message Rx callback */
     sae_registerMsgReceivedCallback(saeContext, ipcMsgRx, NULL);
+
+    /* Tell the ARM we're ready */
+    quickIpcToCore(saeContext, IPC_TYPE_SHARC1_READY, IPC_CORE_ARM);
 
     while (1) {
         asm("nop;");

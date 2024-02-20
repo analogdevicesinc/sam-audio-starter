@@ -63,6 +63,7 @@ struct _FS_DEVMAN_DEVICE {
   int (*fsd_closedir)(void *dir, void *pdata);
   int (*fsd_unlink)(const char *fname, void *pdata);
   int (*fsd_rename)(const char *oldname, const char *newname, void *pdata);
+  int (*fsd_stat)(const char* filename, FS_DEVMAN_STAT *stat, void *pdata);
 };
 
 #endif

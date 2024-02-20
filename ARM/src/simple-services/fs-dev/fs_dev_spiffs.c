@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -45,43 +45,11 @@ static int dev_spiffs_open(const char *path, int flags, int mode, void *pdata)
 
     spiffsFlags = 0;
 
-#if defined(__ADSPARM__)
-   if (mode & ADI_BINARY) {
-       /* Binary mode, ignore */
-   }
-   if (mode & ADI_RW) {
-       /* Read/Write mode */
-       spiffsFlags |= SPIFFS_O_RDWR;
-   }
-   if (mode & ADI_WRITE) {
-       /* Write mode */
-       if ((mode & ADI_RW) == 0) {
-           spiffsFlags |= SPIFFS_O_WRONLY;
-       }
-       spiffsFlags |= SPIFFS_O_CREAT | SPIFFS_O_TRUNC;
-   } else if (mode & ADI_APPEND) {
-       /* Append mode */
-       if ((mode & ADI_RW) == 0) {
-           spiffsFlags |= SPIFFS_O_WRONLY;
-       }
-       spiffsFlags |= SPIFFS_O_CREAT | SPIFFS_O_APPEND;
-   } else {
-       if ((mode & ADI_RW) == 0) {
-           spiffsFlags |= SPIFFS_O_RDONLY;
-       }
-   }
-#else
-    if ((mode & ADI_RW) == ADI_RW)
-        spiffsFlags |= SPIFFS_O_RDWR;
-    else if (mode & ADI_READ)
-        spiffsFlags |= SPIFFS_O_RDONLY;
-    else if (mode & ADI_WRITE)
-        spiffsFlags |= SPIFFS_O_WRONLY;
-
+    if (mode & ADI_READ) spiffsFlags |= SPIFFS_O_RDONLY;
+    if (mode & ADI_WRITE) spiffsFlags |= SPIFFS_O_WRONLY;
     if (mode & ADI_APPEND) spiffsFlags |= SPIFFS_O_APPEND;
     if (mode & ADI_CREAT) spiffsFlags |= SPIFFS_O_CREAT;
     if (mode & ADI_TRUNC) spiffsFlags |= SPIFFS_O_TRUNC;
-#endif
 
    /* Lua looks for modules starting with a './' path */
    if ((strlen(path) > 2) && (strncmp(path, "./", 2) == 0)) {
@@ -262,6 +230,38 @@ static int dev_spiffs_unlink(const char *fname, void *pdata)
     return(result);
 }
 
+static int dev_spiffs_stat(const char* fname, FS_DEVMAN_STAT *stat, void *pdata)
+{
+    FS_DEVMAN_DEVICE_INFO *devInfo = (FS_DEVMAN_DEVICE_INFO *)pdata;
+    spiffs *fs = (spiffs *)devInfo->usr;
+    s32_t result;
+    spiffs_stat ss;
+
+    result = SPIFFS_stat(fs, fname, &ss);
+    if (result == SPIFFS_OK) {
+        stat->fsize = ss.size;
+        stat->ftime = 0;
+        stat->fdate = 1 << 5;
+        stat->flags = 0;
+        if (ss.type == SPIFFS_TYPE_DIR) {
+            stat->flags |= FS_DEVMAN_STAT_FLAG_DIR;
+        }
+    }
+
+    return((result == SPIFFS_OK) ? 0 : -1);
+}
+
+static int dev_spiffs_rename(const char *oldname, const char *newname, void *pdata)
+{
+    FS_DEVMAN_DEVICE_INFO *devInfo = (FS_DEVMAN_DEVICE_INFO *)pdata;
+    spiffs *fs = (spiffs *)devInfo->usr;
+    s32_t result;
+
+    result = SPIFFS_rename(fs, oldname, newname);
+
+    return((result == SPIFFS_OK) ? 0 : -1);
+}
+
 static FS_DEVMAN_DEVICE FS_DEV_SPIFFS = {
   .fsd_open = dev_spiffs_open,
   .fsd_close = dev_spiffs_close,
@@ -272,7 +272,8 @@ static FS_DEVMAN_DEVICE FS_DEV_SPIFFS = {
   .fsd_readdir = dev_spiffs_readdir,
   .fsd_closedir = dev_spiffs_closedir,
   .fsd_unlink = dev_spiffs_unlink,
-  .fsd_rename = NULL
+  .fsd_stat = dev_spiffs_stat,
+  .fsd_rename = dev_spiffs_rename
 };
 
 FS_DEVMAN_DEVICE *fs_dev_spiffs_device(void)

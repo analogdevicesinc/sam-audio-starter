@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -67,7 +67,7 @@ typedef enum SPI_SIMPLE_PORT {
     SPI0 = (0),      /**< SPI port 0 */
     SPI1 = (1),      /**< SPI port 1 */
     SPI2 = (2),      /**< SPI port 2 */
-#if defined(__ADSPSC594_FAMILY__)
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     SPI3 = (3),      /**< SPI port 3 */
 #endif
     SPI_END          /**< End of SPI ports */

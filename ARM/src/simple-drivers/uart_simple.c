@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -109,6 +109,7 @@ struct sUART {
     // read/write timeouts mode
     int32_t readTimeout;
     int32_t writeTimeout;
+    UART_SIMPLE_GET_TIME_MS_FN getTimeFn;
 
     // misc
     bool transmitting;
@@ -291,10 +292,19 @@ UART_SIMPLE_RESULT uart_read(sUART *uart, uint8_t *in, uint8_t *inLen)
         }
     }
 #else
-    if (uart->readTimeout == UART_SIMPLE_TIMEOUT_INF) {
-        do {
-            empty = (uart->rx_buffer_writeptr == uart->rx_buffer_readptr);
-        } while (empty);
+    if (uart->readTimeout != UART_SIMPLE_TIMEOUT_NONE) {
+        uint32_t now, start;
+        bool timeout;
+        if (uart->getTimeFn) {
+            timeout = false; start = uart->getTimeFn();
+            do {
+                empty = (uart->rx_buffer_writeptr == uart->rx_buffer_readptr);
+                if (uart->readTimeout != UART_SIMPLE_TIMEOUT_INF) {
+                    now = uart->getTimeFn();
+                    timeout = (now - start) >= uart->readTimeout;
+                }
+            } while (empty && !timeout);
+        }
     }
 #endif
 
@@ -534,6 +544,14 @@ UART_SIMPLE_RESULT uart_setTimeouts(sUART *uartHandle,
 #endif
 
     return(result);
+}
+
+UART_SIMPLE_RESULT uart_setGetTimeFn(sUART *uartHandle,
+    UART_SIMPLE_GET_TIME_MS_FN getTimeFn)
+{
+    sUART *uart = uartHandle;
+    uart->getTimeFn = getTimeFn;
+    return(UART_SIMPLE_SUCCESS);
 }
 
 UART_SIMPLE_RESULT uart_open(UART_SIMPLE_PORT port, sUART **uartHandle)

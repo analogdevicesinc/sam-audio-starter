@@ -1,4 +1,7 @@
-// SAM shell
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -65,10 +68,16 @@ SHELL_FUNC( shell_update );
 SHELL_FUNC( shell_reset );
 SHELL_FUNC( shell_meminfo );
 SHELL_FUNC( shell_test );
+SHELL_FUNC( shell_sdtest );
 SHELL_FUNC( shell_route );
 SHELL_FUNC( shell_run );
 SHELL_FUNC( shell_wav );
+SHELL_FUNC( shell_cmp );
 SHELL_FUNC( shell_a2b );
+SHELL_FUNC( shell_cmdlist );
+SHELL_FUNC( shell_edit );
+SHELL_FUNC( shell_drive );
+SHELL_FUNC( shell_delay );
 
 SHELL_HELP( help );
 SHELL_HELP( ver );
@@ -91,10 +100,16 @@ SHELL_HELP( update );
 SHELL_HELP( reset );
 SHELL_HELP( meminfo );
 SHELL_HELP( test );
+SHELL_HELP( sdtest );
 SHELL_HELP( route );
 SHELL_HELP( run );
 SHELL_HELP( wav );
+SHELL_HELP( cmp );
 SHELL_HELP( a2b );
+SHELL_HELP( cmdlist );
+SHELL_HELP( edit );
+SHELL_HELP( drive );
+SHELL_HELP( delay );
 
 //static const SHELL_COMMAND shell_commands[] =
 const SHELL_COMMAND shell_commands[] =
@@ -125,10 +140,16 @@ const SHELL_COMMAND shell_commands[] =
   { "reset", shell_reset },
   { "meminfo", shell_meminfo },
   { "test", shell_test },
+  { "sdtest", shell_sdtest },
   { "route", shell_route },
   { "run", shell_run },
   { "wav", shell_wav },
+  { "cmp", shell_cmp },
   { "a2b", shell_a2b },
+  { "cmdlist", shell_cmdlist },
+  { "edit", shell_edit },
+  { "drive", shell_drive },
+  { "delay", shell_delay },
   { "exit", NULL },
   { NULL, NULL }
 };
@@ -156,10 +177,16 @@ static const SHELL_HELP_DATA shell_help_data[] =
   SHELL_INFO( reset ),
   SHELL_INFO( meminfo ),
   SHELL_INFO( test ),
+  SHELL_INFO( sdtest ),
   SHELL_INFO( route ),
   SHELL_INFO( run ),
   SHELL_INFO( wav ),
+  SHELL_INFO( cmp ),
   SHELL_INFO( a2b ),
+  SHELL_INFO( cmdlist ),
+  SHELL_INFO( edit ),
+  SHELL_INFO( drive ),
+  SHELL_INFO( delay ),
   { NULL, NULL, NULL }
 };
 
@@ -231,7 +258,7 @@ void shell_ver( SHELL_CONTEXT *ctx, int argc, char **argv )
     printf( "Invalid arguments. Type help [<command>] for usage.\n" );
     return;
   }
-  printf( SHELL_WELCOMEMSG, STR_VERSION, __DATE__, __TIME__ );
+  printf( SHELL_WELCOMEMSG, STR_VERSION, __DATE__, __TIME__);
 }
 
 // ****************************************************************************

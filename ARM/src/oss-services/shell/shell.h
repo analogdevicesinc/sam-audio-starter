@@ -231,7 +231,7 @@ void shell_poll( SHELL_CONTEXT *ctx );
 /*!****************************************************************
  *  @brief Shell execute routine.
  *
- * This function executes the given command and argument string as 
+ * This function executes the given command and argument string as
  * if it were typed on the console.
  *
  * @param [in]  ctx        Pointer to an application allocated context

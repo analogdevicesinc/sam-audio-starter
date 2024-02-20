@@ -18,7 +18,7 @@
 
 #define SHELL_MAX_ARGS          10
 #define SHELL_WELCOMEMSG         "SAM Audio Starter\n" \
-                                 "Version: %s (%s %s)\n"
+                                 "Version: %s (%s %s)\n" 
 #define SHELL_PROMPT            "# "
 #define SHELL_ERRMSG            "Invalid command, type 'help' for help\n"
 #define SHELL_MAX_LINE_LEN      79
@@ -27,6 +27,7 @@
 #define SHELL_MAX_HISTORIES     50
 #define SHELL_MALLOC            umm_malloc
 #define SHELL_FREE              umm_free
+#define SHELL_CALLOC            umm_calloc
 #define SHELL_STRDUP            shell_strdup
 #define SHELL_STRNDUP           shell_strndup
 

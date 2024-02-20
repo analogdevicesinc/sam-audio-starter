@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -261,6 +261,43 @@ FS_DEVMAN_DIRENT *fs_devman_readdir(void *dir)
     dirent = devInfo->dev->fsd_readdir(ddir, devInfo);
 
     return(dirent);
+}
+
+unsigned int fs_devman_get_num_devices(void)
+{
+   return(numDevices);
+}
+
+FS_DEVMAN_RESULT fs_devman_get_deviceName(unsigned int deviceIdx,
+    const char **devName)
+{
+    FS_DEVMAN_RESULT result = FS_DEVMAN_ERROR;
+
+    if ((deviceIdx < numDevices) && (deviceIdx < FS_DEVMAN_MAX_DEVICES)) {
+        if (deviceEntries[deviceIdx].allocated) {
+            if (devName) {
+                *devName = deviceEntries[deviceIdx].info.name;
+            }
+            result = FS_DEVMAN_OK;
+        } else {
+            result = FS_DEVMAN_NOT_FOUND;
+        }
+    }
+
+    return(result);
+}
+
+bool fs_devman_is_device_valid(char *devName)
+{
+    bool bIsValid = false;
+
+    if (devName) {
+        if (fs_devman_find(devName, NULL, false)) {
+            bIsValid = true;
+        }
+    }
+
+    return(bIsValid);
 }
 
 

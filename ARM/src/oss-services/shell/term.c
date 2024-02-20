@@ -1,3 +1,7 @@
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 // Terminal function
 #include <stdio.h>
 #include <stdarg.h>

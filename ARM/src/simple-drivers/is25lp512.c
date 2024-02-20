@@ -21,7 +21,6 @@
 #define CMD_READ_ID                         0x9F
 #define CMD_4_BYTE_QUAD_OUTPUT_FAST_READ    0x6C
 #define CMD_WRITE_ENABLE                    0x06
-#define CMD_WRITE_DISABLE                   0x04
 #define CMD_4KB_SUBSECTOR_ERASE             0x21
 #define CMD_ENTER_4_BYTE_ADDRESS_MODE       0xB7
 #define CMD_EXIT_4_BYTE_ADDRESS_MODE        0x29
@@ -116,25 +115,6 @@ static int is25lp_write_enable(const FLASH_INFO *fi)
     result = FLASH_OK;
 
     tx[0] = CMD_WRITE_ENABLE;
-    spiResult = spi_xfer(fi->flashHandle, 1, NULL, tx);
-
-    if (spiResult != SPI_SIMPLE_SUCCESS) {
-        result = FLASH_ERROR;
-    }
-
-    return(result);
-}
-
-static int is25lp_write_disable(const FLASH_INFO *fi)
-{
-    int result;
-    SPI_SIMPLE_RESULT spiResult;
-
-    uint8_t tx[1];
-
-    result = FLASH_OK;
-
-    tx[0] = CMD_WRITE_DISABLE;
     spiResult = spi_xfer(fi->flashHandle, 1, NULL, tx);
 
     if (spiResult != SPI_SIMPLE_SUCCESS) {

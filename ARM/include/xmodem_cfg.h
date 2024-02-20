@@ -14,7 +14,7 @@
 
 #include "umm_malloc.h"
 
-#define XMODEM_MALLOC            umm_malloc
-#define XMODEM_FREE              umm_free
+#define XMODEM_MALLOC  umm_malloc
+#define XMODEM_FREE    umm_free
 
 #endif

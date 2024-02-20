@@ -17,6 +17,6 @@
 #define WAVE_FILE_CALLOC          umm_calloc
 #define WAVE_FILE_FREE            umm_free
 
-#define WAVE_FILE_BUF_SIZE       (16 * 1024)
+#define WAVE_FILE_BUF_SIZE       (64 * 1024)
 
 #endif

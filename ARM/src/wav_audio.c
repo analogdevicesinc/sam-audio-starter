@@ -23,6 +23,7 @@
 #include "wav_audio.h"
 #include "umm_malloc.h"
 #include "clock_domain.h"
+#include "syslog.h"
 
 static unsigned wavSrcUnderflow = 0;
 static unsigned wavSinkOverflow = 0;
@@ -34,10 +35,11 @@ enum {
     WAV_TASK_AUDIO_SINK_MORE_DATA,
 };
 
-static SYSTEM_AUDIO_TYPE srcBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE srcBuffer2[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE sinkBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE sinkBuffer2[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+static SYSTEM_AUDIO_TYPE srcBuffer[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+static SYSTEM_AUDIO_TYPE srcBuffer2[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+static SYSTEM_AUDIO_TYPE sinkBuffer[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+static SYSTEM_AUDIO_TYPE sinkBuffer2[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+static SYSTEM_AUDIO_TYPE sinkBuffer3[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 
 /* This task keeps the wav src ring buffer full */
 portTASK_FUNCTION(wavSrcTask, pvParameters)
@@ -52,9 +54,9 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
     bool ok;
 
     while (1) {
-        xSemaphoreTake(wavSrc->lock, portMAX_DELAY);
+        xSemaphoreTake((SemaphoreHandle_t)wavSrc->lock, portMAX_DELAY);
         if (wavSrc->enabled) {
-            samplesIn = SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE;
+            samplesIn = WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE;
             samplesOut = PaUtil_GetRingBufferWriteAvailable(wavSrcRB);
             ok = true;
             while (ok && (samplesOut >= samplesIn)) {
@@ -80,7 +82,7 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
         } else {
             PaUtil_FlushRingBuffer(wavSrcRB);
         }
-        xSemaphoreGive(wavSrc->lock);
+        xSemaphoreGive((SemaphoreHandle_t)wavSrc->lock);
         whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
     }
 }
@@ -98,7 +100,7 @@ portTASK_FUNCTION(wavSinkTask, pvParameters)
     bool ok;
 
     while (1) {
-        xSemaphoreTake(wavSink->lock, portMAX_DELAY);
+        xSemaphoreTake((SemaphoreHandle_t)wavSink->lock, portMAX_DELAY);
         if (wavSink->enabled) {
             samplesIn = PaUtil_GetRingBufferReadAvailable(wavSinkRB);
             samplesOut = wavSink->channels * SYSTEM_BLOCK_SIZE;
@@ -107,13 +109,22 @@ portTASK_FUNCTION(wavSinkTask, pvParameters)
                 PaUtil_ReadRingBuffer(
                     wavSinkRB, sinkBuffer2, samplesOut
                 );
-                wsize = writeWave(wavSink, sinkBuffer2, samplesOut);
+                if (wavSink->wordSizeBytes == sizeof(SYSTEM_AUDIO_TYPE)) {
+                    wsize = writeWave(wavSink, sinkBuffer2, samplesOut);
+                } else {
+                    copyAndConvert(
+                        sinkBuffer2, sizeof(SYSTEM_AUDIO_TYPE), wavSink->channels,
+                        sinkBuffer3, wavSink->wordSizeBytes, wavSink->channels,
+                        samplesOut / wavSink->channels, true
+                    );
+                    wsize = writeWave(wavSink, sinkBuffer3, samplesOut);
+                }
                 samplesIn = PaUtil_GetRingBufferReadAvailable(wavSinkRB);
             }
         } else {
             PaUtil_FlushRingBuffer(wavSinkRB);
         }
-        xSemaphoreGive(wavSink->lock);
+        xSemaphoreGive((SemaphoreHandle_t)wavSink->lock);
         whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
     }
 }
@@ -148,8 +159,8 @@ void wav_audio_init(APP_CONTEXT *context)
     PaUtil_InitializeRingBuffer(context->wavSinkRB,
         sizeof(SYSTEM_AUDIO_TYPE), dataSize, context->wavSinkRBData);
 
-    context->wavSrc.lock =  xSemaphoreCreateMutex();
-    context->wavSink.lock =  xSemaphoreCreateMutex();
+    context->wavSrc.lock =  (SemaphoreHandle_t)xSemaphoreCreateMutex();
+    context->wavSink.lock =  (SemaphoreHandle_t)xSemaphoreCreateMutex();
 
     xTaskCreate(wavSrcTask, "WavSrcTask", WAV_TASK_STACK_SIZE,
         context, WAV_TASK_PRIORITY, &context->wavSrcTaskHandle );
@@ -194,7 +205,7 @@ SAE_MSG_BUFFER *xferWavSinkAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
     if (samplesIn <= samplesOut) {
         copyAndConvert(
             audio->data, audio->wordSize, audio->numChannels,
-            sinkBuffer, wavSink->wordSizeBytes, wavSink->channels,
+            sinkBuffer, sizeof(SYSTEM_AUDIO_TYPE), wavSink->channels,
             audio->numFrames, true
         );
         PaUtil_WriteRingBuffer(

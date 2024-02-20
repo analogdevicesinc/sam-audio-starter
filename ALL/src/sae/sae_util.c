@@ -27,7 +27,7 @@ void sae_lockIpc(void)
 void sae_unLockIpc(void)
 {
     /* Unlock the dest IPC struct */
-    sae_unlock(&saeSharcArmIPC->lock);
+    while(!sae_unlock(&saeSharcArmIPC->lock));
 
     /* Reenable local interrupts */
     SAE_EXIT_CRITICAL();

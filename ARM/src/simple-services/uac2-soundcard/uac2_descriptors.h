@@ -185,6 +185,7 @@ CLD_SC58x_Audio_2_0_Stream_Interface_Params *newStreamInterfaceParams(
     uint8_t endpointNumber, uint8_t bTerminalID,
     uint16_t *minPacketSizeFull, uint16_t *maxPacketSizeFull,
     uint16_t *minPacketSizeHigh, uint16_t *maxPacketSizeHigh,
+    uint8_t *bIntervalFull, uint8_t *bIntervalHigh,
     uint32_t sampleRate, uint8_t bNRChannels, bool lowLatency,
     uac2_format_type_i_descriptor *formatDescriptor,
     CLD_SC58x_Audio_2_0_Audio_Stream_Data_Endpoint_Descriptor *endpointDescriptor
