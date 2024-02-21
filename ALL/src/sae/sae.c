@@ -67,7 +67,7 @@ SAE_RESULT sae_initialize(SAE_CONTEXT **contextPtr, SAE_CORE_IDX coreIdx, bool i
     SAE_RESULT result = SAE_RESULT_OK;
     SAE_CONTEXT *context;
     int *MCAPI_end;
-    unsigned MCAPI_SIZE;
+    uintptr_t MCAPI_SIZE;
 
     /* Some LDR files have SHARC0 as the last MCAPI segment, some have
      * SHARC1 as the last MCAPI segment.  In all cases, the memory
@@ -77,18 +77,13 @@ SAE_RESULT sae_initialize(SAE_CONTEXT **contextPtr, SAE_CORE_IDX coreIdx, bool i
     MCAPI_end = __MCAPI_sharc0_end > __MCAPI_sharc1_end ?
         __MCAPI_sharc0_end : __MCAPI_sharc1_end;
 
-    MCAPI_SIZE = MCAPI_end - __MCAPI_common_start;
+    MCAPI_SIZE = (uintptr_t)MCAPI_end - (uintptr_t)__MCAPI_common_start;
 
     /*
-     * SHARC .ldf uses ___MCAPI_sharc0_end = MEMORY_END()
+     * SHARC .ldf / ARM .ld uses ___MCAPI_sharc0_end = MEMORY_END()
      * so the actual size is off by one.
      */
-#if !defined(__ADSPARM__)
     MCAPI_SIZE += 1;
-#endif
-
-    /* The ld/ldr macros are in words, convert to bytes */
-    MCAPI_SIZE *= sizeof(*__MCAPI_common_start);
 
     /* Make sure a context pointer has been passed in */
     if (contextPtr == NULL) {

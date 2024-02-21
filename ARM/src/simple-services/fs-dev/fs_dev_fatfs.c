@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -83,43 +83,16 @@ static int dev_fatfs_open(const char *path, int flags, int mode, void *pdata)
 
     fatfsFlags = 0;
 
-#if defined(__ADSPARM__)
-    if (mode & ADI_BINARY) {
-        /* Binary mode, ignore */
-    }
-    if (mode & ADI_RW) {
-        /* Read/Write mode */
-        fatfsFlags |= FA_READ | FA_WRITE;
-    }
-    if (mode & ADI_WRITE) {
-        /* Write mode */
-        if ((mode & ADI_RW) == 0) {
-            fatfsFlags |= FA_WRITE;
-        }
-        fatfsFlags |= FA_CREATE_ALWAYS;
-    } else if (mode & ADI_APPEND) {
-        /* Append mode */
-        if ((mode & ADI_RW) == 0) {
-            fatfsFlags |= FA_WRITE;
-        }
-        fatfsFlags |= FA_OPEN_APPEND;
-    } else {
-        if ((mode & ADI_RW) == 0) {
-            fatfsFlags |= FA_READ;
-        }
-    }
-#else
-    if ((mode & ADI_RW) == ADI_RW)
-        fatfsFlags |= FA_READ | FA_WRITE;
-    else if (mode & ADI_READ)
-        fatfsFlags |= FA_READ;
-    else if (mode & ADI_WRITE)
-        fatfsFlags |= FA_WRITE;
-
+    if (mode & ADI_READ) fatfsFlags |= FA_READ;
+    if (mode & ADI_WRITE) fatfsFlags |= FA_WRITE;
     if (mode & ADI_APPEND) fatfsFlags |= FA_OPEN_APPEND;
-    if (mode & ADI_CREAT) fatfsFlags |= FA_CREATE_ALWAYS;
-    if (mode & ADI_TRUNC) fatfsFlags |= 0;
-#endif
+    if (mode & ADI_CREAT) {
+        if (mode & ADI_TRUNC) {
+            fatfsFlags |= FA_CREATE_ALWAYS;
+        } else {
+            fatfsFlags |= FA_OPEN_ALWAYS;
+        }
+    }
 
     f = NULL; fd = -1;
     for (i = 0; i < FS_DEVIO_MAX_FATFS_FD; i++) {
@@ -323,8 +296,52 @@ static int dev_fatfs_unlink(const char *fname, void *pdata)
 
     fp = fullPath(fname, pdata);
     if (fp) {
-        result =  f_unlink(fp);
+        result = f_unlink(fp);
         FS_DEVMAN_FREE(fp);
+    }
+
+    return((result == FR_OK) ? 0 : -1);
+}
+
+static int dev_fatfs_stat(const char* fname, FS_DEVMAN_STAT *stat, void *pdata)
+{
+    FRESULT result = FR_NO_FILE;
+    FILINFO f;
+    char *fp;
+
+    fp = fullPath(fname, pdata);
+    if (fp) {
+        result = f_stat(fp, &f);
+        if (result == FR_OK) {
+            stat->fsize = f.fsize;
+            stat->ftime = f.ftime;
+            stat->fdate = f.fdate;
+            stat->flags = 0;
+            if (f.fattrib & AM_DIR) {
+                stat->flags |= FS_DEVMAN_STAT_FLAG_DIR;
+            }
+        }
+        FS_DEVMAN_FREE(fp);
+    }
+
+    return((result == FR_OK) ? 0 : -1);
+}
+
+static int dev_fatfs_rename(const char *oldname, const char *newname, void *pdata)
+{
+    FRESULT result = FR_NO_FILE;
+    char *fpn, *fpo;
+
+    fpo = fullPath(oldname, pdata);
+    fpn = fullPath(newname, pdata);
+    if (fpo && fpn) {
+        result = f_rename(fpo, fpn);
+    }
+    if (fpo) {
+        FS_DEVMAN_FREE(fpo);
+    }
+    if (fpn) {
+        FS_DEVMAN_FREE(fpn);
     }
 
     return((result == FR_OK) ? 0 : -1);
@@ -340,7 +357,8 @@ static FS_DEVMAN_DEVICE FS_DEV_ROMFS = {
   .fsd_readdir = dev_fatfs_readdir,
   .fsd_closedir = dev_fatfs_closedir,
   .fsd_unlink = dev_fatfs_unlink,
-  .fsd_rename = NULL
+  .fsd_stat = dev_fatfs_stat,
+  .fsd_rename = dev_fatfs_rename
 };
 
 FS_DEVMAN_DEVICE *fs_dev_fatfs_device(void)

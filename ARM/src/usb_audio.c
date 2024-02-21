@@ -23,22 +23,6 @@
 
 static bool txPreRoll = true;
 
-static SYSTEM_AUDIO_TYPE rxBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE txBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-
-unsigned usbBits2bytes(unsigned bits)
-{
-    unsigned bSubslotSize;
-    if (bits <= 8) {
-        bSubslotSize = 1;
-    } else if (bits <= 16) {
-        bSubslotSize = 2;
-    } else {
-        bSubslotSize = 4;
-    }
-    return(bSubslotSize);
-}
-
 /*
  * This callback is called whenever audio data is available from the
  * host via the UAC2 OUT endpoint.  This callback runs in an
@@ -70,7 +54,7 @@ uint16_t uac2Rx(void *data, void **nextData, uint16_t rxSize, void *usrPtr)
     bufferTrackAccum(UAC2_OUT_BUFFER_TRACK_IDX, samples);
 
     /* Calculate the number of frames that came in over USB */
-    sampleSizeBytes = usbBits2bytes(context->cfg.usbWordSizeBits);
+    sampleSizeBytes = context->cfg.usbWordSize;
     samples = rxSize / sampleSizeBytes;
     frames = samples / context->cfg.usbOutChannels;
 
@@ -80,24 +64,10 @@ uint16_t uac2Rx(void *data, void **nextData, uint16_t rxSize, void *usrPtr)
 
     /* Copy in the audio data if there is space */
     if (framesAvailable >= frames ) {
-        if (sampleSizeBytes == sizeof(SYSTEM_AUDIO_TYPE)) {
-            /* 32-bit -> 32-bit or 16-bit -> 16-bit */
-            PaUtil_WriteRingBuffer(
-                context->uac2OutRx, data,
-                context->cfg.usbOutChannels * frames
-            );
-        } else {
-            /* 16-bit -> 32-bit, 32-bit -> 16-bit */
-            copyAndConvert(
-                data, sampleSizeBytes, context->cfg.usbOutChannels,
-                rxBuffer, sizeof(SYSTEM_AUDIO_TYPE), context->cfg.usbOutChannels,
-                frames, false
-            );
-            PaUtil_WriteRingBuffer(
-                context->uac2OutRx, rxBuffer,
-                context->cfg.usbOutChannels * frames
-            );
-        }
+        PaUtil_WriteRingBuffer(
+            context->uac2OutRx, data,
+            context->cfg.usbOutChannels * frames
+        );
     } else {
         context->uac2stats.rx.usbRxOverRun++;
     }
@@ -177,7 +147,7 @@ uint16_t uac2Tx(void *data, void **nextData,
     bufferTrackAccum(UAC2_IN_BUFFER_TRACK_IDX, samples);
 
     /* Calculate the nominal number of frames to transmit over USB */
-    sampleSizeBytes = usbBits2bytes(context->cfg.usbWordSizeBits);
+    sampleSizeBytes = context->cfg.usbWordSize;
     uacFrames = ((maxSize + minSize) / 2) /
         (context->cfg.usbInChannels * sampleSizeBytes);
 
@@ -243,20 +213,9 @@ uint16_t uac2Tx(void *data, void **nextData,
     }
 
     /* Copy the audio from the ring buffer */
-    if (sampleSizeBytes == sizeof(SYSTEM_AUDIO_TYPE)) {
-        PaUtil_ReadRingBuffer(
-            context->uac2InTx, data, uacFrames * context->cfg.usbInChannels
-        );
-    } else {
-        PaUtil_ReadRingBuffer(
-            context->uac2InTx, txBuffer, uacFrames * context->cfg.usbInChannels
-        );
-        copyAndConvert(
-            txBuffer, sizeof(SYSTEM_AUDIO_TYPE), context->cfg.usbInChannels,
-            data, sampleSizeBytes, context->cfg.usbInChannels,
-            uacFrames, false
-        );
-    }
+    PaUtil_ReadRingBuffer(
+        context->uac2InTx, data, uacFrames * context->cfg.usbInChannels
+    );
 
     /* Return the size in bytes to the soundcard service */
     size = uacFrames * context->cfg.usbInChannels * sampleSizeBytes;
@@ -364,7 +323,7 @@ SAE_MSG_BUFFER * xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
 #if 1
     /* Sanity check the request */
     if ( (audio->numChannels != USB_DEFAULT_OUT_AUDIO_CHANNELS) ||
-         (audio->wordSize != sizeof(SYSTEM_AUDIO_TYPE)) )
+         (audio->wordSize != context->cfg.usbWordSize) )
     {
         return(NULL);
     }
@@ -470,7 +429,7 @@ SAE_MSG_BUFFER *xferUsbTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
 #if 1
     /* Sanity check the request */
     if ( (audio->numChannels != USB_DEFAULT_IN_AUDIO_CHANNELS) ||
-         (audio->wordSize != sizeof(SYSTEM_AUDIO_TYPE)) )
+         (audio->wordSize != context->cfg.usbWordSize) )
     {
         return(NULL);
     }

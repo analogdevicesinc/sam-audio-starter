@@ -12,8 +12,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include <runtime/int/interrupt.h>
-
 #include "FreeRTOS.h"
 #include "task.h"
 

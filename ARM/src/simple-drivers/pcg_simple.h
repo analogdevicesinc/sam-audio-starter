@@ -36,7 +36,7 @@ typedef enum {
     PCG_A,
     PCG_B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     PCG_C,
     PCG_D,
 #endif

@@ -13,7 +13,7 @@
 #define __VERSION_H__
 
 #ifndef STR_VERSION
-#define STR_VERSION      "0.0.2"
+#define STR_VERSION      "2.0.0"
 #endif
 
 #endif

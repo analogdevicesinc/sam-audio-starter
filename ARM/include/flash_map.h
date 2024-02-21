@@ -33,11 +33,12 @@
 #define APP_OFFSET    (BOOT1_OFFSET + BOOT1_SIZE)
 #define APP_SIZE      (0x00200000)
 
-/* Filesystem (7M reserved) */
-#define FS_OFFSET     (APP_OFFSET + APP_SIZE)
-#define FS_SIZE       (0x00700000)
+/* SPIFFS Filesystem (8M reserved) */
+#define SPIFFS_OFFSET (APP_OFFSET + APP_SIZE)
+#define SPIFFS_SIZE   (0x00800000)
 
 /* Erase block size, good for all flash devices */
 #define ERASE_BLOCK_SIZE (4*1024)
+#define FLASH_PAGE_SIZE  (256)
 
 #endif

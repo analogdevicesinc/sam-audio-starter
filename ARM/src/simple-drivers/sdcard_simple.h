@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -35,12 +35,31 @@
 #include "clocks.h"
 
 /*!****************************************************************
- * @brief Default base MSI CLK to 100MHz if not otherwise defined
- *        in clocks.h
+ * @brief Default base MSI peripheral CLK to 100MHz for SC58x and
+ *        50 MHz for SC59x if not otherwise defined in clocks.h
  ******************************************************************/
 #ifndef SDCLK
-#define SDCLK  100000000
+    #if defined (__ADSPSC589_FAMILY__)
+        #define SDCLK  100000000
+    #elif defined(__ADSPSC598_FAMILY__)
+        #define SDCLK  50000000
+    #else
+        #error Unsupported processor
+    #endif
 #endif
+
+/*!****************************************************************
+ * @brief Maximum SD card operating frequency
+ ******************************************************************/
+#ifndef SDCLK_MAX
+#define SDCLK_MAX  25000000
+#endif
+
+/*!****************************************************************
+ * @brief Poll SDCARD using CMD13 for SDCARD presence detect.  Set
+ *        in build environment.  EMSI driver only.
+ ******************************************************************/
+//#define SDCARD_POLL_CARD_DETECT
 
 /*!****************************************************************
  * @brief Hardware SDCARD port.
@@ -82,6 +101,7 @@ typedef enum _SDCARD_SIMPLE_TYPE {
 typedef struct _SDCARD_SIMPLE_INFO {
     SDCARD_SIMPLE_TYPE type;
     uint64_t capacity;
+    uint32_t speed;
 } SDCARD_SIMPLE_INFO;
 
 /*!****************************************************************

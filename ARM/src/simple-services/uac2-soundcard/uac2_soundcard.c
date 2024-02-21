@@ -151,6 +151,7 @@ typedef struct
     CLD_Boolean in_idle;
     CLD_Boolean in_active;
     CLD_Boolean in_data_allocated;
+    CLD_Boolean high_speed;
     uint8_t *in_data;
     uint16_t in_size;
     uint16_t minInSize;
@@ -159,6 +160,8 @@ typedef struct
     uint16_t maxInSizeFull;
     uint16_t minInSizeHigh;
     uint16_t maxInSizeHigh;
+    uint8_t bIntervalInFull;
+    uint8_t bIntervalInHigh;
 
     CLD_Boolean inPktFirst;
     uint32_t inPktLastTime;
@@ -175,6 +178,8 @@ typedef struct
     uint16_t maxOutSizeFull;
     uint16_t minOutSizeHigh;
     uint16_t maxOutSizeHigh;
+    uint8_t bIntervalOutFull;
+    uint8_t bIntervalOutHigh;
 
     CLD_Boolean outPktFirst;
     uint32_t outPktLastTime;
@@ -256,6 +261,12 @@ static void uac2_tx_feedback_data ( void )
                     feedback_transfer_data.desired_data_rate = (float)rate / 1000.0;
                 }
             }
+        }
+
+        /* Adjust for bInterval.  The CLD library assumes a bInterval of 1. */
+        if (uac2_state.high_speed && (uac2_state.bIntervalOutHigh > 1)) {
+            feedback_transfer_data.desired_data_rate *=
+                (float)((unsigned)(1 << (uac2_state.bIntervalOutHigh - 1)));
         }
 
         if (cld_sc58x_audio_2_0_w_cdc_lib_transmit_audio_rate_feedback_data(&feedback_transfer_data)== CLD_USB_TRANSMIT_SUCCESSFUL) {
@@ -954,6 +965,23 @@ static void user_cld_lib_status (unsigned short status_code, void * p_additional
 #endif
 }
 
+static void uac2_set_sizes(bool highSpeed)
+{
+    if (highSpeed) {
+        uac2_state.minInSize = uac2_state.minInSizeHigh;
+        uac2_state.maxInSize = uac2_state.maxInSizeHigh;
+        uac2_state.minOutSize = uac2_state.minOutSizeHigh;
+        uac2_state.maxOutSize = uac2_state.maxOutSizeHigh;
+    } else {
+        uac2_state.minInSize = uac2_state.minInSizeFull;
+        uac2_state.maxInSize = uac2_state.maxInSizeFull;
+        uac2_state.minOutSize = uac2_state.minOutSizeFull;
+        uac2_state.maxOutSize = uac2_state.maxOutSizeFull;
+    }
+    uac2_state.in_size = (uac2_state.minInSize + uac2_state.maxInSize) / 2;
+    uac2_state.out_size = (uac2_state.minOutSize + uac2_state.maxOutSize) / 2;
+}
+
 /**
  * Function Called when a USB event occurs on the USB Audio USB Port.
  *
@@ -961,8 +989,6 @@ static void user_cld_lib_status (unsigned short status_code, void * p_additional
  */
 static void uac2_usb_event (CLD_USB_Event event)
 {
-    bool highSpeed;
-
     switch (event)
     {
         case CLD_USB_CABLE_CONNECTED:
@@ -973,22 +999,15 @@ static void uac2_usb_event (CLD_USB_Event event)
             uac2_streaming_tx_endpoint_enabled(CLD_FALSE);
             uac2_streaming_rx_endpoint_enabled(CLD_FALSE);
             break;
-        case CLD_USB_ENUMERATED_CONFIGURED:
-            /* HACK: Get the speed directly from the peripheral */
-            highSpeed = (*pREG_USB0_POWER & BITM_USB_POWER_HSEN);
-            if (highSpeed) {
-                uac2_state.minInSize = uac2_state.minInSizeHigh;
-                uac2_state.maxInSize = uac2_state.maxInSizeHigh;
-                uac2_state.minOutSize = uac2_state.minOutSizeHigh;
-                uac2_state.maxOutSize = uac2_state.maxOutSizeHigh;
-                uac2_syslog("UAC 2.0 High Speed Ready\n");
-            } else {
-                uac2_state.minInSize = uac2_state.minInSizeFull;
-                uac2_state.maxInSize = uac2_state.maxInSizeFull;
-                uac2_state.minOutSize = uac2_state.minOutSizeFull;
-                uac2_state.maxOutSize = uac2_state.maxOutSizeFull;
-                uac2_syslog("UAC 2.0 Low Speed Ready\n");
-            }
+        case CLD_USB_ENUMERATED_CONFIGURED_HS:
+            uac2_state.high_speed = CLD_TRUE;
+            uac2_set_sizes(true);
+            uac2_syslog("UAC 2.0 High Speed Ready\n");
+            break;
+        case CLD_USB_ENUMERATED_CONFIGURED_FS:
+            uac2_state.high_speed = CLD_FALSE;
+            uac2_set_sizes(false);
+            uac2_syslog("UAC 2.0 Low Speed Ready\n");
             break;
         case CLD_USB_UN_CONFIGURED:
             uac2_syslog("UAC 2.0 Offline");
@@ -1290,6 +1309,9 @@ unsigned char *createTerminalAndFeatureDescriptors(unsigned short *descriptorLen
  */
 CLD_RV uac2_init(void)
 {
+    /* Clear state */
+    memset(&uac2_state, 0, sizeof(uac2_state));
+
     /* Reset state variables */
     uac2_state.volume_changed = CLD_FALSE;
     uac2_state.in_enabled = CLD_FALSE;
@@ -1402,6 +1424,7 @@ CLD_RV uac2_config(UAC2_APP_CONFIG *cfg)
             USB_IN_ENDPOINT_ID, USB_IN_OUTPUT_TERMINAL_ID,
             &uac2_state.minInSizeFull, &uac2_state.maxInSizeFull,
             &uac2_state.minInSizeHigh, &uac2_state.maxInSizeHigh,
+            &uac2_state.bIntervalInFull, &uac2_state.bIntervalInHigh,
             uac2_state.cfg.usbSampleRate, uac2_state.cfg.usbInChannels,
             uac2_state.cfg.lowLatency,
             inFormatDescriptor, inEndpointDescriptor
@@ -1417,6 +1440,7 @@ CLD_RV uac2_config(UAC2_APP_CONFIG *cfg)
             USB_OUT_ENDPOINT_ID, USB_OUT_INPUT_TERMINAL_ID,
             &uac2_state.minOutSizeFull, &uac2_state.maxOutSizeFull,
             &uac2_state.minOutSizeHigh, &uac2_state.maxOutSizeHigh,
+            &uac2_state.bIntervalOutFull, &uac2_state.bIntervalOutHigh,
             uac2_state.cfg.usbSampleRate, uac2_state.cfg.usbOutChannels,
             uac2_state.cfg.lowLatency,
             outFormatDescriptor, outEndpointDescriptor
@@ -1708,4 +1732,3 @@ CLD_RV uac2_run(void)
 
     return(CLD_SUCCESS);
 }
-

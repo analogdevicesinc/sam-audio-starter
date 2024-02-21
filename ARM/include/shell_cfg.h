@@ -17,9 +17,8 @@
 /*! @cond */
 
 #define SHELL_MAX_ARGS          10
-#define SHELL_WELCOMEMSG         "SAM Audio Starter (Rev 2.0 Board)\n" \
-                                 "Version: %s (%s %s)\n" \
-                                 "Core Clock: %3.3f MHz\n"
+#define SHELL_WELCOMEMSG         "SAM Audio Starter with Networking\n" \
+                                 "Version: %s (%s %s)\n" 
 #define SHELL_PROMPT            "# "
 #define SHELL_ERRMSG            "Invalid command, type 'help' for help\n"
 #define SHELL_MAX_LINE_LEN      79

@@ -8,7 +8,6 @@
  * otherwise using the software constitutes acceptance of the license. The
  * software may not be used except as expressly authorized under the license.
  */
-
 #ifndef _sharc_audio_h
 #define _sharc_audio_h
 

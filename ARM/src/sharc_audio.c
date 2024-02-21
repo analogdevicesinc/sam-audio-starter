@@ -8,7 +8,6 @@
  * otherwise using the software constitutes acceptance of the license. The
  * software may not be used except as expressly authorized under the license.
  */
-
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -16,7 +15,6 @@
 #include "clock_domain.h"
 #include "usb_audio.h"
 #include "wav_audio.h"
-#include "data_xfer.h"
 #include "sharc_audio.h"
 #include "sae.h"
 #include "rtp_audio.h"
@@ -96,10 +94,6 @@ void sharcAudio(APP_CONTEXT *context, unsigned mask, SAE_MSG_BUFFER *msg,
             if (msg) {
                 sendMsg(sae, msg);
             }
-            msg = xferFileSinkData(context, context->fileMsgSink[0], cd);
-            if (msg) {
-                sendMsg(sae, msg);
-            }
         } else {
             msg = xferUsbRxAudio(context, context->usbMsgRx[0], cd);
             if (msg) {
@@ -117,10 +111,6 @@ void sharcAudio(APP_CONTEXT *context, unsigned mask, SAE_MSG_BUFFER *msg,
             if (msg) {
                 sendMsg(sae, msg);
             }
-            msg = xferFileSrcData(context, context->fileMsgSrc[0], cd);
-            if (msg) {
-                sendMsg(sae, msg);
-            }
         }
     }
 
@@ -132,10 +122,12 @@ void sharcAudio(APP_CONTEXT *context, unsigned mask, SAE_MSG_BUFFER *msg,
     ready = clock_domain_ready(context, cd);
     if (ready) {
         msg = sae_createMsgBuffer(sae, sizeof(*ipcMsg), (void **)&ipcMsg);
-        ipcMsg->type = IPC_TYPE_PROCESS_AUDIO;
-        ipcMsg->process.clockDomain = cd;
-        sendMsg(sae, msg);
-        sae_unRefMsgBuffer(sae, msg);
+        if (msg) {
+            ipcMsg->type = IPC_TYPE_PROCESS_AUDIO;
+            ipcMsg->process.clockDomain = cd;
+            sendMsg(sae, msg);
+            sae_unRefMsgBuffer(sae, msg);
+        }
     }
 }
 

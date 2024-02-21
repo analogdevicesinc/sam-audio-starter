@@ -1,0 +1,7 @@
+# Set your own build preferences
+
+# enable parallel builds
+# MAKEFLAGS += --jobs
+
+# enable silent builds
+# MAKEFLAGS += --silent

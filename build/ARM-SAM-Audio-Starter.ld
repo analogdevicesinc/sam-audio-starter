@@ -44,22 +44,22 @@ MEMORY
   MEM_L2_MCAPI_DATA_CORE2 (r) : ORIGIN = 0x20082000, LENGTH = 4K
 
   /* MCAPI Buffer SHARC Core 1, uncached */
-  MEM_L2_MCAPI_DATA_CORE1 (r) : ORIGIN = 0x20083000, LENGTH = 48K
+  MEM_L2_MCAPI_DATA_CORE1 (r) : ORIGIN = 0x20083000, LENGTH = 124K
 
   /* #### ARM L2 Memory ################################################## */
 
   /* ARM Core 0 L2 RAM, uncached */
-  MEM_L2_UNCACHED : ORIGIN = 0x2008F000, LENGTH = 16K
+  MEM_L2_UNCACHED : ORIGIN = 0x200A2000, LENGTH = 8K
 
   /* ARM Core 0 L2 RAM, cached */
-  MEM_L2_CACHED : ORIGIN = 0x20093000, LENGTH = 52K
+  MEM_L2_CACHED : ORIGIN = 0x200A4000, LENGTH = 32K
 
   /* #### SHARC L2 Memory ################################################ */
   /* SHARC Core 2 L2 RAM, cached */
-  MEM_L2_CORE2 (r) : ORIGIN = 0x200A0000, LENGTH = 64K
+  MEM_L2_CORE2 (r) : ORIGIN = 0x200AC000, LENGTH = 40K
 
   /* SHARC CORE 1 L2 RAM, cached */
-  MEM_L2_CORE1 (r) : ORIGIN = 0x200B0000, LENGTH = 64K
+  MEM_L2_CORE1 (r) : ORIGIN = 0x200B6000, LENGTH = 40K
 
   /* #### SHARC L3 Memory ################################################ */
 

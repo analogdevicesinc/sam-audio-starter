@@ -168,13 +168,13 @@ MEMORY
    //   bank1   2008_0000   2009_2FFF   4KB uncached - ICC
    //                                   4KB uncached - MCAPI ARM
    //                                   4KB uncached - MCAPI SHARC1
-   //                                  48KB uncached - MCAPI SHARC0
-   //                                  16KB uncached - ARM
-   //   bank2   2009_3000   2009_FFFF  52KB cached   - ARM
-   //   bank5   200A_0000   200A_7FFF  32KB cached   - SHARC1
-   //   bank6   200A_8000   200A_FFFF  32KB cached   - SHARC1
-   //   bank7   200B_0000   200B_7FFF  32KB cached   - SHARC0
-   //   bank8   200B_8000   200B_DFFB  24KB cached   - SHARC0
+   //                                 124KB uncached - MCAPI SHARC0
+   //                                   8KB uncached - ARM
+   //   bank2   200A_4000   200A_BFFF  32KB cached   - ARM
+   //   bank5   200A_C000   200B_0FFF  20KB cached   - SHARC1
+   //   bank6   200B_1000   200B_5FFF  20KB cached   - SHARC1
+   //   bank7   200B_6000   200B_AFFF  20KB cached   - SHARC0
+   //   bank8   200B_B000   200B_DFFB  12KB cached   - SHARC0
    //           200B_DFFC   200B_FFFF   8KB cached boot code working area
    //
    // Notes:
@@ -187,11 +187,11 @@ MEMORY
    mem_L2B1P1_bw           { TYPE(BW RAM) START(0x20080000) END(0x20080fff) WIDTH(8) }
    mem_L2B1P2_bw           { TYPE(BW RAM) START(0x20081000) END(0x20081fff) WIDTH(8) }
    mem_L2B1P3_bw           { TYPE(BW RAM) START(0x20082000) END(0x20082fff) WIDTH(8) }
-   mem_L2B1P4_bw           { TYPE(BW RAM) START(0x20083000) END(0x2008efff) WIDTH(8) }
-   mem_L2B1P5_bw           { TYPE(BW RAM) START(0x2008F000) END(0x20092fff) WIDTH(8) }
-   mem_L2B2toB4_bw         { TYPE(BW RAM) START(0x20093000) END(0x2009ffff) WIDTH(8) }
-   mem_L2B5B6_bw           { TYPE(BW RAM) START(0x200a0000) END(0x200affff) WIDTH(8) }
-   mem_L2B7B8_bw           { TYPE(BW RAM) START(0x200b0000) END(0x200bdffb) WIDTH(8) }
+   mem_L2B1P4_bw           { TYPE(BW RAM) START(0x20083000) END(0x200a1fff) WIDTH(8) }
+   mem_L2B1P5_bw           { TYPE(BW RAM) START(0x200a2000) END(0x200a3fff) WIDTH(8) }
+   mem_L2B2toB4_bw         { TYPE(BW RAM) START(0x200a4000) END(0x200abfff) WIDTH(8) }
+   mem_L2B5B6_bw           { TYPE(BW RAM) START(0x200ac000) END(0x200b5fff) WIDTH(8) }
+   mem_L2B7B8_bw           { TYPE(BW RAM) START(0x200b6000) END(0x200bdffb) WIDTH(8) }
    mem_L2B8BC_bw           { TYPE(BW RAM) START(0x200bdffc) END(0x200bffff) WIDTH(8) }
 
   #define MY_L2_CACHED_MEM   mem_L2B5B6_bw
@@ -1208,7 +1208,7 @@ PROCESSOR SC589_CORE_1
       #if defined(MY_L2_CACHED_MEM)
       dxe_l2_stack_and_heap_reserve NO_INIT BW
       {
-         RESERVE(heaps_and_system_stack_in_L2, heaps_and_system_stack_in_L2_length = 32768, 8)
+         RESERVE(heaps_and_system_stack_in_L2, heaps_and_system_stack_in_L2_length = 16384, 8)
       } > MY_L2_CACHED_MEM
 
       dxe_l2_sw_code SW

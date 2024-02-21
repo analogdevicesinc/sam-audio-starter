@@ -36,6 +36,7 @@
 	.extern ulICCIAR
 	.extern ulICCEOIR
 	.extern ulICCPMR
+	.extern ulICCHPIR
 
 	/* Variables and functions. */
 	.extern ulMaxAPIPriorityMask
@@ -183,6 +184,12 @@ FreeRTOS_IRQ_Handler:
 	ADD		r4, r1, #1
 	STR		r4, [r3]
 
+	/* Read value from the high priority interrupt register before the interrupt
+        acknowledge register to avoid ARM Errata 801120 */
+	LDR 	r2, ulICCHPIRConst
+	LDR		r2, [r2]
+	LDR		r0, [r2]
+
 	/* Read value from the interrupt acknowledge register, which is stored in r0
 	for future parameter and interrupt clearing use. */
 	LDR 	r2, ulICCIARConst
@@ -306,6 +313,7 @@ vApplicationIRQHandler:
 ulICCIARConst:	.word ulICCIAR
 ulICCEOIRConst:	.word ulICCEOIR
 ulICCPMRConst: .word ulICCPMR
+ulICCHPIRConst: .word ulICCHPIR
 pxCurrentTCBConst: .word pxCurrentTCB
 ulCriticalNestingConst: .word ulCriticalNesting
 ulPortTaskHasFPUContextConst: .word ulPortTaskHasFPUContext

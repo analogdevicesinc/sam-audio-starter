@@ -24,10 +24,14 @@ static void tickHandler(uint32_t id, void *param);
 
 /* The constant ADI_CFG_GP_TMR_NUM should probably be defined in FreeRTOSConfig.h */
 #ifndef ADI_CFG_GP_TMR_NUM
+#if defined (__ADSPSC589_FAMILY__) || defined (__ADSPSC573_FAMILY__)
 #define ADI_CFG_GP_TMR_NUM 7
+#elif defined(__ADSPSC594_FAMILY__)
+#define ADI_CFG_GP_TMR_NUM 15
+#endif
 #endif
 
-#if !defined (__ADSPSC589_FAMILY__) && !defined (__ADSPSC573_FAMILY__)
+#if !defined (__ADSPSC589_FAMILY__) && !defined (__ADSPSC573_FAMILY__) && !defined (__ADSPSC594_FAMILY__)
 #error "This processor family is not supported"
 #endif
 
@@ -37,6 +41,11 @@ static void tickHandler(uint32_t id, void *param);
 
 #if (ADI_CFG_GP_TMR_NUM >= PARAM_TIMER0_NUMTIMERS)
 #error "Incorrect GP Timer number specified for the processor."
+#endif
+
+#ifndef configSCLK0_HZ
+/* SCLK0 is normally one quarter of the CPU clock */
+#define configSCLK0_HZ (configCPU_CLOCK_HZ / 4)
 #endif
 
 /* Macros to construct the desired register name from the timer number. */
@@ -72,20 +81,16 @@ static void tickHandler(uint32_t id, void *param)
 /*
  * Set up a GP Timer as the RTOS tick interrupt source.
  *
- * This function configures a GP Timer to be used for FreeRTOS timing services.
+ * This function configures a GP Timer to be used for timing services.
  * The GP Timer to be used is selected by a ADI_CFG_GP_TMR_NUM macro, which is
- * defined by the FreeRTOS UI.  This function only modifies the registers, and
+ * defined by FreeRTOSConfig.h.  This function only modifies the registers, and
  * parts of registers, that apply to the given GP timer.
  */
 
 void vConfigureTickInterrupt(void)
 {
-    /* GP timers are clocked from SCLK0 */
-    const uint32_t nCycles =
-        configCPU_CLOCK_HZ /
-        configSC5xx_CGU0_SSYSEL_DIVISOR /
-        configSC5xx_CGU0_S0SEL_DIVISOR /
-        configTICK_RATE_HZ;
+    /* GP timers are clocked at the SCLK0 frequency */
+    const uint32_t nCycles = configSCLK0_HZ / configTICK_RATE_HZ;
 
     /* Write 1 to configure the timer to "abrupt halt" configuration (doesn't stop timer) */
     *pREG_TIMER0_STOP_CFG_SET    =  SET_TIMER_MSK_BIT;
@@ -134,15 +139,9 @@ void vConfigureTickInterrupt(void)
                             | ENUM_TIMER_TMR_CFG_EMU_NOCNT);   /* Timer stops during emulation */
 
     /* Set the timer delay */
-#if 0
-    *pTIMERDLY = nCycles;          /* Interrupt generated at this count */
-    *pTIMERWID = 0x1u;             /* Pulse held high for 1 cycle       */
-    *pTIMERPER = nCycles + 0x1u;   /* Sequence restarts after these cycles       */
-#else
     *pTIMERDLY = nCycles - 0x1u;   /* Interrupt generated at this count */
     *pTIMERWID = 0x1u;             /* Pulse held high for 1 cycle       */
     *pTIMERPER = nCycles;          /* Sequence restarts after these cycles       */
-#endif
 
     /* Enable data interrupts (0 for enable, 1 for disable) */
     *pREG_TIMER0_DATA_IMSK   &=  CLR_TIMER_MSK_BIT;

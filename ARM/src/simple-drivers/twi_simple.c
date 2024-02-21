@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -488,6 +488,59 @@ TWI_SIMPLE_RESULT twi_init(void)
 
             twi->TWI_DATA_IRQ_ID     = INTR_TWI2_DATA;
         }
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
+        else if (port == TWI3) {
+            twi->pREG_TWI_CTL        = pREG_TWI3_CTL;
+            twi->pREG_TWI_CLKDIV     = pREG_TWI3_CLKDIV;
+            twi->pREG_TWI_FIFOCTL    = pREG_TWI3_FIFOCTL;
+            twi->pREG_TWI_FIFOSTAT   = (volatile uint16_t *)pREG_TWI3_FIFOSTAT;
+            twi->pREG_TWI_MSTRADDR   = pREG_TWI3_MSTRADDR;
+            twi->pREG_TWI_IMSK       = pREG_TWI3_IMSK;
+            twi->pREG_TWI_ISTAT      = pREG_TWI3_ISTAT;
+            twi->pREG_TWI_MSTRSTAT   = pREG_TWI3_MSTRSTAT;
+            twi->pREG_TWI_MSTRCTL    = pREG_TWI3_MSTRCTL;
+            twi->pREG_TWI_TXDATA8    = pREG_TWI3_TXDATA8;
+            twi->pREG_TWI_TXDATA16   = pREG_TWI3_TXDATA16;
+            twi->pREG_TWI_RXDATA8    = pREG_TWI3_RXDATA8;
+            twi->pREG_TWI_RXDATA16   = pREG_TWI3_RXDATA16;
+
+            twi->TWI_DATA_IRQ_ID     = INTR_TWI3_DATA;
+        }
+        else if (port == TWI4) {
+            twi->pREG_TWI_CTL        = pREG_TWI4_CTL;
+            twi->pREG_TWI_CLKDIV     = pREG_TWI4_CLKDIV;
+            twi->pREG_TWI_FIFOCTL    = pREG_TWI4_FIFOCTL;
+            twi->pREG_TWI_FIFOSTAT   = (volatile uint16_t *)pREG_TWI4_FIFOSTAT;
+            twi->pREG_TWI_MSTRADDR   = pREG_TWI4_MSTRADDR;
+            twi->pREG_TWI_IMSK       = pREG_TWI4_IMSK;
+            twi->pREG_TWI_ISTAT      = pREG_TWI4_ISTAT;
+            twi->pREG_TWI_MSTRSTAT   = pREG_TWI4_MSTRSTAT;
+            twi->pREG_TWI_MSTRCTL    = pREG_TWI4_MSTRCTL;
+            twi->pREG_TWI_TXDATA8    = pREG_TWI4_TXDATA8;
+            twi->pREG_TWI_TXDATA16   = pREG_TWI4_TXDATA16;
+            twi->pREG_TWI_RXDATA8    = pREG_TWI4_RXDATA8;
+            twi->pREG_TWI_RXDATA16   = pREG_TWI4_RXDATA16;
+
+            twi->TWI_DATA_IRQ_ID     = INTR_TWI4_DATA;
+        }
+        else if (port == TWI5) {
+            twi->pREG_TWI_CTL        = pREG_TWI5_CTL;
+            twi->pREG_TWI_CLKDIV     = pREG_TWI5_CLKDIV;
+            twi->pREG_TWI_FIFOCTL    = pREG_TWI5_FIFOCTL;
+            twi->pREG_TWI_FIFOSTAT   = (volatile uint16_t *)pREG_TWI5_FIFOSTAT;
+            twi->pREG_TWI_MSTRADDR   = pREG_TWI5_MSTRADDR;
+            twi->pREG_TWI_IMSK       = pREG_TWI5_IMSK;
+            twi->pREG_TWI_ISTAT      = pREG_TWI5_ISTAT;
+            twi->pREG_TWI_MSTRSTAT   = pREG_TWI5_MSTRSTAT;
+            twi->pREG_TWI_MSTRCTL    = pREG_TWI5_MSTRCTL;
+            twi->pREG_TWI_TXDATA8    = pREG_TWI5_TXDATA8;
+            twi->pREG_TWI_TXDATA16   = pREG_TWI5_TXDATA16;
+            twi->pREG_TWI_RXDATA8    = pREG_TWI5_RXDATA8;
+            twi->pREG_TWI_RXDATA16   = pREG_TWI5_RXDATA16;
+
+            twi->TWI_DATA_IRQ_ID     = INTR_TWI5_DATA;
+        }
+#endif
 
 #ifdef FREE_RTOS
 #if 1

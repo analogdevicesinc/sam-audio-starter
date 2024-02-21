@@ -1,5 +1,5 @@
-nafae-sam-audio-starter networking-1.0.0
-Copyright 2023 Analog Devices, Inc.
+nafae-sam-audio-starter networking-2.0.0
+Copyright 2024 Analog Devices, Inc.
 
 The main license for this software is identified in the LICENSE file.
 
@@ -7,14 +7,17 @@ This product includes third party IP identified below:
 
 Components:
 
-CLD USB Audio 2.0 Library v1.00 : ADI-CLD License
+antirez/kilo 20200705-snapshot-69c3ce60 : BSD 2-clause "Simplified" License
+CLD USB Audio 2.0 Library v1.10 : ADI-CLD License
 elua's elua v0.9 : MIT License
 FatFs Module R0.14b : FatFs License
-FreeRTOS Real Time Kernel V10.2.1 : MIT License
+FreeBSD release/12.4.0 : BSD 2-clause "Simplified" License
+FreeRTOS Real Time Kernel V10.4.6 : MIT License
 libtelnet 0.23 : Public Domain
 linenoise 1.0 : BSD 2-clause "Simplified" License
 lwIP STABLE-2_1_2_RELEASE : BSD 3-clause "New" or "Revised" License
 menie.org/georges/crc16 1.0 : BSD 3-clause "New" or "Revised" License
+pellepl/spiffs 0.3.7 : MIT License
 PortAudio 190600.20161030 : MIT License
 rhempel/umm_malloc v1.0.1 : MIT License
 Yxml - A small, fast and correct* XML parser master-20151027 : MIT License
@@ -22,7 +25,45 @@ Yxml - A small, fast and correct* XML parser master-20151027 : MIT License
 Licenses:
 
 --------------------------------------------------------------------------------
-CLD USB Audio 2.0 Library v1.00
+antirez/kilo 20200705-snapshot-69c3ce60
+License: BSD 2-clause "Simplified" License
+Origin: https://github.com/antirez/kilo
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 2-clause "Simplified" License
+SPDX-License-Identifier: BSD-2-Clause
+Copyright (C) 2016 Salvatore Sanfilippo <antirez at gmail dot com>
+
+BSD Two Clause License
+======================
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+
+
+--------------------------------------------------------------------------------
+CLD USB Audio 2.0 Library v1.10
 License: ADI-CLD License
 
 
@@ -102,9 +143,47 @@ Copyright (C) 2013, ChaN, all right reserved.
 
 
 --------------------------------------------------------------------------------
-FreeRTOS Real Time Kernel V10.2.1
+FreeBSD release/12.4.0
+License: BSD 2-clause "Simplified" License
+Origin: https://github.com/freebsd/freebsd-src
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 2-clause "Simplified" License
+SPDX-License-Identifier: BSD-2-Clause
+Copyright (c) 2011 The NetBSD Foundation, Inc.
+
+BSD Two Clause License
+======================
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+
+
+--------------------------------------------------------------------------------
+FreeRTOS Real Time Kernel V10.4.6
 License: MIT License
-Origin: https://github.com/FreeRTOS/FreeRTOS
+Origin: https://github.com/FreeRTOS/FreeRTOS-Kernel
 
 The source code for this component has been modified by Analog Devices.
 
@@ -112,28 +191,27 @@ The source code for this component has been modified by Analog Devices.
 
 License: MIT License
 SPDX-License-Identifier: MIT
--------------
+Copyright (C) 2021 Amazon.com, Inc. or its affiliates.
 
+MIT License
 
-
-Copyright (C) 2019 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE
 
 
 --------------------------------------------------------------------------------
@@ -156,7 +234,8 @@ relinquishment in perpetuity of all present and future rights to this
 code under copyright law.
 
 -- Sean Middleditch <sean@sourcemud.org>
--- Jack Kelly <endgame.dos@gmail.com>”
+-- Jack Kelly <endgame.dos@gmail.com>
+
 
 
 --------------------------------------------------------------------------------
@@ -276,6 +355,39 @@ OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+--------------------------------------------------------------------------------
+pellepl/spiffs 0.3.7
+License: MIT License
+Origin: https://github.com/pellepl/spiffs/tree/0.3.7
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+The MIT License (MIT)
+
+Copyright (c) 2013-2017 Peter Andersson (pelleplutt1976<at>gmail.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
 
 --------------------------------------------------------------------------------

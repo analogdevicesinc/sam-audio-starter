@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -113,6 +113,13 @@ void syslog_printf(char *fmt, ...)
     syslog_print(line);
 }
 
+void syslog_vprintf(char *fmt, va_list args)
+{
+    char line[SYSLOG_LINE_MAX];
+    vsnprintf(line, SYSLOG_LINE_MAX, fmt, args);
+    syslog_print(line);
+}
+
 void syslog_dump(unsigned max)
 {
     SYSLOG_CONTEXT *log = &consoleLog;
@@ -142,9 +149,10 @@ void syslog_dump(unsigned max)
         uint64_t ts_sec, ts_ms;
         ts_sec = ts / 1000;
         ts_ms = ts - ts_sec * 1000;
-        printf("[%6llu.%03llu] ", ts_sec, ts_ms);
+        printf("[%6llu.%03llu] ", (unsigned long long)ts_sec,
+            (unsigned long long)ts_ms);
 #else
-        printf("[%9llu] ", ts);
+        printf("[%9llu] ", (unsigned long long)ts);
 #endif
         puts(line);
         count++;
@@ -152,4 +160,49 @@ void syslog_dump(unsigned max)
     }
     SYSLOG_CRITICAL_EXIT(log->lock);
     SYSLOG_FREE(line);
+}
+
+char *syslog_next(char *ts, size_t tsMax, char *line, size_t lineMax)
+{
+    SYSLOG_CONTEXT *log = &consoleLog;
+    char *logLine;
+    uint64_t u64ts;
+    char *end;
+
+    SYSLOG_CRITICAL_ENTRY(log->lock);
+    if (log->tailIdx != log->headIdx) {
+        log->tailIdx++;
+        if (log->tailIdx == SYSLOG_MAX_LINES) {
+            log->tailIdx = 0;
+        }
+        logLine = &log->logData[log->tailIdx * SYSLOG_LINE_MAX];
+        strncpy(line, logLine, lineMax); line[lineMax-1] = '\0';
+        u64ts = log->tsData[log->tailIdx];
+    } else {
+        line = NULL; ts = NULL;
+    }
+    SYSLOG_CRITICAL_EXIT(log->lock);
+
+    if (line) {
+        end = line + strlen(line) - 1;
+        while (isspace((int)(*end))) {
+            *end = 0;
+            end--;
+        }
+    }
+
+    if (ts) {
+#ifdef FREE_RTOS
+        uint64_t ts_sec, ts_ms;
+        ts_sec = u64ts / 1000;
+        ts_ms = u64ts - ts_sec * 1000;
+        snprintf(ts, tsMax, "[%6llu.%03llu] ", (unsigned long long)ts_sec,
+            (unsigned long long)ts_ms);
+#else
+        snprintf(ts, tsMax, "[%9llu] ", (unsigned long long)ts);
+#endif
+        ts[tsMax-1] = '\0';
+    }
+
+    return(line);
 }

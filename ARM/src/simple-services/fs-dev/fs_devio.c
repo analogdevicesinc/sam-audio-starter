@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -85,6 +85,43 @@ static int _fs_devio_open(const char *name, int mode)
     if (!fdf) {
         return(-1);
     }
+
+    /* Standardize the Cortex A5 implementation mode flags */
+#if defined __ADSPCORTEXA5__
+    #define ADI_A5_READ     0x0000
+    #define ADI_A5_BINARY   0x0001
+    #define ADI_A5_RW       0x0002
+    #define ADI_A5_WRITE    0x0004
+    #define ADI_A5_APPEND   0x0008
+    int a5_mode = 0;
+    if (mode & ADI_A5_RW) {
+        /* Read/Write mode */
+        a5_mode |= O_RDWR;
+    }
+    if (mode & ADI_A5_WRITE) {
+        /* Write mode */
+        if ((mode & ADI_A5_RW) == 0) {
+            a5_mode |= O_WRONLY;
+        }
+        a5_mode |= O_CREAT | O_TRUNC;
+    } else if (mode & ADI_A5_APPEND) {
+        /* Append mode */
+        if ((mode & ADI_A5_RW) == 0) {
+            a5_mode |= O_WRONLY;
+        }
+        a5_mode |= O_CREAT | O_APPEND;
+    } else {
+        if ((mode & ADI_A5_RW) == 0) {
+            a5_mode |= O_RDONLY;
+        }
+    }
+    mode = a5_mode;
+#endif
+
+    /* Add 1 to R/W modes on all ARM implementations */
+#if defined(__ADSPARM__)
+    mode += 1;
+#endif
 
     baseFd = devInfo->dev->fsd_open(fname, 0, mode, devInfo);
     if (baseFd < 0) {
@@ -256,6 +293,27 @@ static int _fs_devio_rename(const char *oldname, const char *newname)
  * ARM specific devio functions and structs
  **********************************************************************/
 #if defined(__ADSPARM__)
+
+#include <sys/stat.h>
+int _fs_devio_stat(const char* filename, FS_DEVMAN_STAT *stat)
+{
+    FS_DEVMAN_DEVICE_INFO *devInfo;
+    FS_DEVMAN_RESULT result;
+    const char *fname;
+    int uresult;
+
+    devInfo = fs_devman_getInfo(filename, &fname, &result);
+    if (devInfo == NULL) {
+        return(-1);
+    }
+    if (!devInfo->dev->fsd_stat) {
+        return(-1);
+    }
+
+    uresult = devInfo->dev->fsd_stat(fname, stat, devInfo);
+
+    return(uresult);
+}
 
 static int _fs_devio_isatty(int fh)
 {

@@ -37,14 +37,15 @@
 #include "sae.h"
 #include "fs_devman.h"
 #include "fs_devio.h"
-#include "fs_dev_romfs.h"
 #include "fs_dev_fatfs.h"
+#include "fs_dev_spiffs.h"
 
 /* oss-services includes */
 #include "shell.h"
 #include "umm_malloc.h"
-#include "romfs.h"
 #include "xmodem.h"
+#include "spiffs.h"
+#include "spiffs_fs.h"
 
 /* Project includes */
 #include "context.h"
@@ -55,11 +56,11 @@
 #include "ipc.h"
 #include "uac2.h"
 #include "wav_audio.h"
-#include "data_xfer.h"
 #include "a2b_slave.h"
 #include "clock_domain.h"
 #include "rtp_audio.h"
 #include "vban_audio.h"
+#include "pushbutton.h"
 
 /* Application context */
 APP_CONTEXT mainAppContext;
@@ -155,6 +156,11 @@ time_t util_time(time_t *tloc)
     return(t);
 }
 
+uint32_t rtosTimeMs()
+{
+    return(xTaskGetTickCount() * (1000 / configTICK_RATE_HZ));
+}
+
 /***********************************************************************
  * Application IPC functions
  **********************************************************************/
@@ -174,13 +180,14 @@ SAE_RESULT quickIpcToCore(APP_CONTEXT *context, enum IPC_TYPE type, SAE_CORE_IDX
 {
     SAE_CONTEXT *saeContext = context->saeContext;
     SAE_MSG_BUFFER *ipcBuffer;
-    SAE_RESULT result;
+    SAE_RESULT result = SAE_RESULT_NO_MEM;
     IPC_MSG *msg;
 
     ipcBuffer = sae_createMsgBuffer(saeContext, sizeof(*msg), (void **)&msg);
-    msg->type = type;
-
-    result = ipcToCore(saeContext, ipcBuffer, core);
+    if (ipcBuffer) {
+        msg->type = type;
+        result = ipcToCore(saeContext, ipcBuffer, core);
+    }
 
     return(result);
 }
@@ -204,6 +211,9 @@ static void ipcMsgHandler(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
             break;
         case IPC_TYPE_SHARC0_READY:
             context->sharc0Ready = true;
+            break;
+        case IPC_TYPE_SHARC1_READY:
+            context->sharc1Ready = true;
             break;
         case IPC_TYPE_AUDIO:
             audio = (IPC_MSG_AUDIO *)&msg->audio;
@@ -254,14 +264,14 @@ static void sdcardCheck(APP_CONTEXT *context)
             if (sdResult == SDCARD_SIMPLE_SUCCESS) {
                 sdResult = sdcard_info(context->sdcardHandle, &sdInfo);
                 if (sdResult == SDCARD_SIMPLE_SUCCESS) {
-                    syslog_printf("SDCARD: Type %s\n",
-                        sdTypes[sdInfo.type]
+                    syslog_printf("SDCARD: Type %s (%u MHz)\n",
+                        sdTypes[sdInfo.type], sdInfo.speed / 1000000
                     );
                     syslog_printf("SDCARD: Capacity %llu bytes\n",
                         (unsigned long long)sdInfo.capacity
                     );
                     fs = umm_malloc(sizeof(*fs));
-                    fatResult = f_mount(fs, "sd:", 1);
+                    fatResult = f_mount(fs, SDCARD_VOL_NAME, 1);
                     if (fatResult == FR_OK) {
                         syslog_printf("SDCARD: FatFs mounted");
                     } else {
@@ -275,7 +285,7 @@ static void sdcardCheck(APP_CONTEXT *context)
             }
         } else {
             if (fs) {
-                fatResult = f_unmount("sd:");
+                fatResult = f_unmount(SDCARD_VOL_NAME);
                 if (fatResult == FR_OK) {
                     syslog_printf("SDCARD: FatFs unmount");
                 } else {
@@ -363,119 +373,11 @@ static portTASK_FUNCTION( houseKeepingTask, pvParameters )
     }
 }
 
-/* Background A2B discovery task */
-static portTASK_FUNCTION( a2bDiscoveryTask, pvParameters )
-{
-    APP_CONTEXT *context = (APP_CONTEXT *)pvParameters;
-    bool doDiscover;
-
-    while (1) {
-        /* Sleep */
-        delay(1000);
-        /* Do A2B discovery if required */
-        doDiscover = (context->discoverCmdStatus == false);
-        if (doDiscover) {
-            shell_exec(NULL, "discover revel-bo.xml");
-        }
-    }
-}
-
-/*pushButton task */
-static portTASK_FUNCTION( pushButtonTask, pvParameters )
-{
-    APP_CONTEXT *context = (APP_CONTEXT *)pvParameters;
-    TickType_t flashRate, lastFlashTime, clk, lastClk;
-    uint32_t inputPort;
-    uint32_t num;
-    int rn;
-    bool exists = true;
-    bool wavOn = false;
-
-    FILE *f = NULL;
-
-    char fname[32];
-
-
-    /* TODO:  some cleanup is needed here, not sure of the programming
-       model of the TRNG, so just using the first number as a seed */
-
-    /* enable true randome number generator */
-    *pREG_TRNG0_CTL |= 0x1<<10;
-    delay(250);  /* need to wait for TRNG */
-
-    rn = *pREG_TRNG0_OUTPUT0;
-    srand(rn);
-    context->wavFileIndex = 0;
-
-    /* make sure the generated file name doesn't already exist */
-    while (exists) {
-        num = rand() & 0xffffff;
-        sprintf(fname, "rec%06lx_", num);
-        context->wavRecordFile = fname;	/* base file name */
-        sprintf(fname, "rec%06lx_%03d.wav" ,num , context->wavFileIndex);
-        f = fopen(fname, "r");
-        syslog_printf("filename: %s\n",fname);
-        if (f == NULL) {
-            exists = false;
-        } else {
-            fclose(f);
-        }
-    }
-
-    /* Configure the LED to flash at a 1Hz rate */
-    flashRate = pdMS_TO_TICKS(100);
-    lastFlashTime = xTaskGetTickCount();
-    lastClk = xTaskGetTickCount();
-
-    while (1) {
-        /* light LED 2 if PB2 pressed */
-        adi_gpio_GetData(PUSHBUTTON_PORT, &inputPort);
-        if (( inputPort & PB2 ) && wavOn) {
-            wavOn = false;
-#define PUSHBUTTON_CMD
-#if defined(PUSHBUTTON_CMD)
-            shell_exec(NULL, "run pushbtn2.cmd");
-            adi_gpio_Set(LED_PORT, LED2 );
-#else
-            shell_exec(NULL, "wav sink off");
-            adi_gpio_Clear(LED_PORT, LED3 );
-#endif
-        } else if (( inputPort & PB1) & !wavOn) {
-            wavOn = true;
-#if defined(PUSHBUTTON_CMD)
-            shell_exec(NULL, "run pushbtn1.cmd");
-            adi_gpio_Set(LED_PORT, LED2 );
-#else
-            char cmd[40];
-            cmd[0] = '\0';
-            strcat(cmd, "wav sink on "); strcat(cmd, fname);
-            strcat(cmd, " 12 16");
-            syslog_printf("wav record: %s\n",cmd);
-            shell_exec(NULL, cmd);
-            context->wavFileIndex++;
-            sprintf(fname, "rec%06lx_%03d.wav" ,num , context->wavFileIndex);
-            adi_gpio_Set(LED_PORT, LED3 );
-#endif
-        } else {
-#if defined(PUSHBUTTON_CMD)
-            adi_gpio_Clear(LED_PORT, LED2 );
-#endif
-        }
-
-        clk = xTaskGetTickCount();
-        context->now += (uint64_t)(clk - lastClk);
-        lastClk = clk;
-
-        /* Sleep for a while */
-        vTaskDelayUntil( &lastFlashTime, flashRate );
-    }
-}
-
 static void setAppDefaults(APP_CFG *cfg)
 {
     cfg->usbOutChannels = USB_DEFAULT_OUT_AUDIO_CHANNELS;
     cfg->usbInChannels = USB_DEFAULT_IN_AUDIO_CHANNELS;
-    cfg->usbWordSizeBits = USB_DEFAULT_WORD_SIZE_BITS;
+    cfg->usbWordSize = USB_DEFAULT_WORD_SIZE;
     cfg->usbRateFeedbackHack = false;
     cfg->ip_addr = DEFAULT_IP_ADDR;
     cfg->gateway_addr = DEFAULT_GW_ADDR;
@@ -483,23 +385,24 @@ static void setAppDefaults(APP_CFG *cfg)
     cfg->static_ip = DEFAULT_STATIC_IP;
 }
 
-static void execShellCmdFile(void)
+/***********************************************************************
+ * Startup
+ **********************************************************************/
+static void execShellCmdFile(SHELL_CONTEXT *shell)
 {
     FILE *f = NULL;
     char *name = NULL;
     char cmd[32];
 
-    name = "sd:shell.cmd";
+    name = SPIFFS_VOL_NAME "shell.cmd";
     f = fopen(name, "r");
-    if (f == NULL) {
-        name = "wo:shell.cmd";
-        f = fopen(name, "r");
-    }
     if (f) {
         fclose(f);
         cmd[0] = '\0';
         strcat(cmd, "run "); strcat(cmd, name);
-        shell_exec(NULL, cmd);
+        shell_exec(shell, cmd);
+    } else {
+        syslog_printf( "Unable to open %s\n", name);
     }
 }
 
@@ -511,10 +414,12 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     TWI_SIMPLE_RESULT twiResult;
     SPORT_SIMPLE_RESULT sportResult;
     SDCARD_SIMPLE_RESULT sdcardResult;
-    int fsckRepaired;
-    int fsckOk;
     FS_DEVMAN_DEVICE *device;
     FS_DEVMAN_RESULT fsdResult;
+    s32_t spiffsResult;
+
+    /* Log the core clock frequency */
+    syslog_printf("CPU Core Clock: %u MHz", (unsigned)(context->cclk / 1000000));
 
     /* Initialize the CPU load module. */
     cpuLoadInit(getTimeStamp, CGU_TS_CLK);
@@ -571,22 +476,22 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     adi_core_enable(ADI_CORE_SHARC0);
     adi_core_enable(ADI_CORE_SHARC1);
 
+    /* Wait for SHARC cores to become ready */
+    while (!context->sharc0Ready || !context->sharc1Ready) {
+        delay(1);
+    }
+
     /* Initialize the flash */
     flash_init(context);
 
-    /* Initialize the filesystem */
-    romfs_init(context->flashHandle);
-
-    /* Check the filesystem */
-    fsckOk = romfs_fsck(1, &fsckRepaired);    
-    if ((fsckOk == FS_OK) || ((fsckOk != FS_OK) && (fsckRepaired == true))) {
-        /* Hook the internal filesystem into the stdio libraries */
-        device = fs_dev_romfs_device();
-        fsdResult = fs_devman_register("wo:", device, NULL);
-    }
-    
-    if(fsckOk != FS_OK) {
-        printf("Filesystem corrupt: %s Repaired\n", fsckRepaired ? "" : "Not");
+    /* Initialize the SPIFFS filesystem */
+    context->spiffsHandle = umm_calloc(1, sizeof(*context->spiffsHandle));
+    spiffsResult = spiffs_mount(context->spiffsHandle, context->flashHandle);
+    if (spiffsResult == SPIFFS_OK) {
+        device = fs_dev_spiffs_device();
+        fsdResult = fs_devman_register(SPIFFS_VOL_NAME, device, context->spiffsHandle);
+    } else {
+        syslog_print("SPIFFS mount error, reformat via command line and reset\n");
     }
 
     /* Open the SDCARD driver */
@@ -594,11 +499,11 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 
     /* Hook the SD card filesystem into the stdio libraries */
     device = fs_dev_fatfs_device();
-    fsdResult = fs_devman_register("sd:", device, NULL);
+    fsdResult = fs_devman_register(SDCARD_VOL_NAME, device, NULL);
 
     /* Set the SD card as the default device */
     device = fs_dev_fatfs_device();
-    fsdResult = fs_devman_set_default("sd:");
+    fsdResult = fs_devman_set_default(SDCARD_VOL_NAME);
 
     /* Load configuration */
     setAppDefaults(&context->cfg);
@@ -617,9 +522,6 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 
     /* Initialize the VBAN audio module */
     vban_audio_init(context);
-
-    /* Initialize the data file stream module */
-    data_file_init(context);
 
     /* Tell SHARC0 where to find the routing table.  Add a reference to
      * so it doesn't get destroyed upon receipt.
@@ -668,10 +570,9 @@ static portTASK_FUNCTION( startupTask, pvParameters )
         context, HOUSEKEEPING_PRIORITY, &context->pollStorageTaskHandle );
     xTaskCreate( a2bSlaveTask, "A2BSlaveTask", GENERIC_TASK_STACK_SIZE,
         context, HOUSEKEEPING_PRIORITY, &context->a2bSlaveTaskHandle );
-#if 0
     xTaskCreate( pushButtonTask, "PushbuttonTask", GENERIC_TASK_STACK_SIZE,
         context, HOUSEKEEPING_PRIORITY, &context->pushButtonTaskHandle );
-#endif
+
     /* Start the UAC20 task */
     xTaskCreate( uac2Task, "UAC2Task", UAC20_TASK_STACK_SIZE,
         context, UAC20_TASK_PRIORITY, &context->uac2TaskHandle );
@@ -680,7 +581,7 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     vTaskPrioritySet( NULL, STARTUP_TASK_LOW_PRIORITY);
 
     /* Initialize the shell */
-    shell_init(&context->shell, term_out, term_in, SHELL_MODE_BLOCKING, NULL);
+    shell_init(&context->shell, term_out, term_in, SHELL_MODE_BLOCKING, (void *)context);
 
 #ifdef USB_CDC_STDIO
     /* Delay a little bit for USB enumeration to complete to see
@@ -690,7 +591,7 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 #endif
 
     /* Execute shell initialization command file */
-    execShellCmdFile();
+    execShellCmdFile(&context->shell);
 
     /* Drop into the shell */
     while (1) {
@@ -703,14 +604,14 @@ int main(int argc, char *argv[])
     APP_CONTEXT *context = &mainAppContext;
     UART_SIMPLE_RESULT uartResult;
 
+    /* Initialize the application context */
+    memset(context, 0, sizeof(*context));
+
     /* Initialize system clocks */
-    system_clk_init();
+    system_clk_init(&context->cclk);
 
     /* Enable the CGU timestamp */
     cgu_ts_init();
-
-    /* Initialize the application context */
-    memset(context, 0, sizeof(*context));
 
     /* Initialize the GIC */
     gic_init();

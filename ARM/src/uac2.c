@@ -33,31 +33,44 @@
 portTASK_FUNCTION(uac2Task, pvParameters)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)pvParameters;
+    APP_CFG *cfg = &context->cfg;
     uint32_t whatToDo;
     CLD_RV ret;
     uint32_t dataSize;
 
-    /* Allocate and configure the ring buffer between the UAC2 Rx
-     * (OUT endpoint) and the CODEC DAC.  The ring buffer unit
-     * of measure is in SYSTEM_AUDIO_TYPE sized words
+    /* Allocate and configure the UAC2 Rx (OUT endpoint) ring buffer.
+     * The ring buffer unit of measure is SYSTEM_AUDIO_TYPE sized words.
+     *
+     * Try to fit into L2 first for performance.
      */
     context->uac2OutRx =
         (PaUtilRingBuffer *)umm_malloc(sizeof(PaUtilRingBuffer));
-    dataSize = roundUpPow2(USB_OUT_RING_BUFF_FRAMES * context->cfg.usbOutChannels);
-    context->uac2OutRxData = umm_calloc(dataSize, sizeof(SYSTEM_AUDIO_TYPE));
+    dataSize = roundUpPow2(USB_OUT_RING_BUFF_FRAMES * cfg->usbOutChannels);
+    context->uac2OutRxData =
+        umm_calloc_heap(UMM_L2_CACHED_HEAP, dataSize, cfg->usbWordSize);
+    if (context->uac2OutRxData == NULL) {
+        context->uac2OutRxData =
+            umm_calloc_heap(UMM_SDRAM_HEAP, dataSize, cfg->usbWordSize);
+    }
     PaUtil_InitializeRingBuffer(context->uac2OutRx,
-        sizeof(SYSTEM_AUDIO_TYPE), dataSize, context->uac2OutRxData);
+        cfg->usbWordSize, dataSize, context->uac2OutRxData);
 
-    /* Allocate and configure the ring buffer between the UAC2 Tx
-     * (IN endpoint) and the and the CODEC ADC.  The ring buffer unit
-     * of measure is SYSTEM_AUDIO_TYPE sized words
+    /* Allocate and configure the UAC2 Tx (IN endpoint) ring buffer.
+     * The ring buffer unit of measure is SYSTEM_AUDIO_TYPE sized words.
+     *
+     * Try to fit into L2 first for performance.
      */
     context->uac2InTx =
         (PaUtilRingBuffer *)umm_malloc(sizeof(PaUtilRingBuffer));
-    dataSize = roundUpPow2(USB_IN_RING_BUFF_FRAMES * context->cfg.usbInChannels);
-    context->uac2InTxData = umm_calloc(dataSize, sizeof(SYSTEM_AUDIO_TYPE));
+    dataSize = roundUpPow2(USB_IN_RING_BUFF_FRAMES * cfg->usbInChannels);
+    context->uac2InTxData =
+        umm_calloc_heap(UMM_L2_CACHED_HEAP, dataSize, cfg->usbWordSize);
+    if (context->uac2InTxData == NULL) {
+        context->uac2InTxData =
+            umm_calloc_heap(UMM_SDRAM_HEAP, dataSize, cfg->usbWordSize);
+    }
     PaUtil_InitializeRingBuffer(context->uac2InTx,
-        sizeof(SYSTEM_AUDIO_TYPE), dataSize, context->uac2InTxData);
+        cfg->usbWordSize, dataSize, context->uac2InTxData);
 
     /* Initialize the buffer level tracking module for UAC2 rate feedback.
      * In this system, the CODEC is the clock master for everything.
@@ -69,10 +82,10 @@ portTASK_FUNCTION(uac2Task, pvParameters)
     /* Configure UAC2 application settings */
     context->uac2cfg.port = CLD_USB_0;
     context->uac2cfg.usbSampleRate = SYSTEM_SAMPLE_RATE;
-    context->uac2cfg.usbInChannels = context->cfg.usbInChannels;
-    context->uac2cfg.usbInWordSizeBits = context->cfg.usbWordSizeBits;
-    context->uac2cfg.usbOutChannels = context->cfg.usbOutChannels;
-    context->uac2cfg.usbOutWordSizeBits = context->cfg.usbWordSizeBits;
+    context->uac2cfg.usbInChannels = cfg->usbInChannels;
+    context->uac2cfg.usbInWordSizeBits = cfg->usbWordSize * 8;
+    context->uac2cfg.usbOutChannels = cfg->usbOutChannels;
+    context->uac2cfg.usbOutWordSizeBits = cfg->usbWordSize * 8;
     context->uac2cfg.vendorId = USB_VENDOR_ID;
     context->uac2cfg.productId = USB_PRODUCT_ID;
     context->uac2cfg.mfgString = USB_MFG_STRING;

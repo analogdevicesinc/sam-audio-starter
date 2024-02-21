@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -15,10 +15,11 @@
  * This logger supports FreeRTOS and bare-metal projects.
  *
  * @file      syslog.h
- * @version   1.0.0
- * @copyright 2018 Analog Devices, Inc.  All rights reserved.
+ * @version   1.0.1
+ * @copyright 2023 Analog Devices, Inc.  All rights reserved.
  *
 */
+#include <stdarg.h>
 
 #include "syslog_cfg.h"
 
@@ -106,6 +107,32 @@ void syslog_print(char *msg);
  *
  ******************************************************************/
 void syslog_printf(char *fmt, ...);
+
+/*!****************************************************************
+ * @brief  System log vprintf
+ *
+ * This function prints a variable argument list to the system
+ * log.  Strings which do not fit within the log line length
+ * will be truncated.
+ *
+ * This function is thread safe.
+ *
+ * @param [in]  fmt   Null-terminated format string
+ * @param [in]  args  Variable argument list
+ *
+ ******************************************************************/
+void syslog_vprintf(char *fmt, va_list args);
+
+/*!****************************************************************
+ * @brief  System log next line
+ *
+ * This function returns the next line in the system log or NULL
+ * if the log is empty.
+ *
+ * This function is thread safe.
+ *
+ ******************************************************************/
+char *syslog_next(char *ts, size_t tsMax, char *line, size_t lineMax);
 
 /*!****************************************************************
  * @brief  System log dump

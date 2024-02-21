@@ -1,4 +1,7 @@
-// SAM shell
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -11,7 +14,6 @@
 #include "linenoise.h"
 #include "term.h"
 #include "version.h"
-#include <services/pwr/adi_pwr.h>
 
 #ifdef printf
 #undef printf
@@ -24,7 +26,6 @@
 
 // Helper macros
 #define SHELL_FUNC( func )      extern void func( SHELL_CONTEXT *ctx, int argc, char **argv )
-#define SHELL_SHOW_HELP( cmd )  shellh_show_help( ctx, #cmd, shell_help_##cmd )
 #define SHELL_HELP( cmd ) \
   extern const char shell_help_##cmd[]; \
   extern const char shell_help_summary_##cmd[]
@@ -67,16 +68,18 @@ SHELL_FUNC( shell_update );
 SHELL_FUNC( shell_reset );
 SHELL_FUNC( shell_meminfo );
 SHELL_FUNC( shell_test );
+SHELL_FUNC( shell_sdtest );
 SHELL_FUNC( shell_route );
 SHELL_FUNC( shell_run );
 SHELL_FUNC( shell_wav );
-SHELL_FUNC( shell_file );
 SHELL_FUNC( shell_cmp );
 SHELL_FUNC( shell_a2b );
 SHELL_FUNC( shell_rtp );
 SHELL_FUNC( shell_vban );
 SHELL_FUNC( shell_cmdlist );
+SHELL_FUNC( shell_edit );
 SHELL_FUNC( shell_drive );
+SHELL_FUNC( shell_delay );
 
 SHELL_HELP( help );
 SHELL_HELP( ver );
@@ -99,16 +102,18 @@ SHELL_HELP( update );
 SHELL_HELP( reset );
 SHELL_HELP( meminfo );
 SHELL_HELP( test );
+SHELL_HELP( sdtest );
 SHELL_HELP( route );
 SHELL_HELP( run );
 SHELL_HELP( wav );
-SHELL_HELP( file );
 SHELL_HELP( cmp );
 SHELL_HELP( a2b );
 SHELL_HELP( rtp );
 SHELL_HELP( vban );
 SHELL_HELP( cmdlist );
+SHELL_HELP( edit );
 SHELL_HELP( drive );
+SHELL_HELP( delay );
 
 //static const SHELL_COMMAND shell_commands[] =
 const SHELL_COMMAND shell_commands[] =
@@ -139,16 +144,18 @@ const SHELL_COMMAND shell_commands[] =
   { "reset", shell_reset },
   { "meminfo", shell_meminfo },
   { "test", shell_test },
+  { "sdtest", shell_sdtest },
   { "route", shell_route },
   { "run", shell_run },
   { "wav", shell_wav },
-  { "file", shell_file },
   { "cmp", shell_cmp },
   { "a2b", shell_a2b },
   { "rtp", shell_rtp },
   { "vban", shell_vban },
   { "cmdlist", shell_cmdlist },
+  { "edit", shell_edit },
   { "drive", shell_drive },
+  { "delay", shell_delay },
   { "exit", NULL },
   { NULL, NULL }
 };
@@ -176,16 +183,18 @@ static const SHELL_HELP_DATA shell_help_data[] =
   SHELL_INFO( reset ),
   SHELL_INFO( meminfo ),
   SHELL_INFO( test ),
+  SHELL_INFO( sdtest ),
   SHELL_INFO( route ),
   SHELL_INFO( run ),
   SHELL_INFO( wav ),
-  SHELL_INFO( file ),
   SHELL_INFO( cmp ),
   SHELL_INFO( a2b ),
   SHELL_INFO( rtp ),
   SHELL_INFO( vban ),
   SHELL_INFO( cmdlist ),
+  SHELL_INFO( edit ),
   SHELL_INFO( drive ),
+  SHELL_INFO( delay ),
   { NULL, NULL, NULL }
 };
 
@@ -252,14 +261,12 @@ const char shell_help_summary_ver[] = "show version information";
 
 void shell_ver( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    uint32_t cclk;
   if( argc != 1 )
   {
     printf( "Invalid arguments. Type help [<command>] for usage.\n" );
     return;
   }
-  adi_pwr_GetCoreFreq(0, &cclk);
-  printf( SHELL_WELCOMEMSG, STR_VERSION, __DATE__, __TIME__, (float)cclk/1000000.0 );
+  printf( SHELL_WELCOMEMSG, STR_VERSION, __DATE__, __TIME__);
 }
 
 // ****************************************************************************

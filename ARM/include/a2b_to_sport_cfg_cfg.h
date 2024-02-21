@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -9,16 +9,9 @@
  * software may not be used except as expressly authorized under the license.
  */
 
-#ifndef _romfs_cfg_h
-#define _romfs_cfg_h
+#ifndef _a2b_to_sport_cfg_cfg_h
+#define _a2b_to_sport_cfg_cfg_h
 
-#include "flash_map.h"
-
-#define ROMFS_FLASH_START_ADDRESS (FLASH_ADDR)
-#define ROMFS_FLASH_SECTOR_SIZE   (4 * 1024)
-
-#define ROMFS_FS_START_ADDRESS    (FS_OFFSET)
-#define ROMFS_FS_END_ADDRESS      (FS_OFFSET + FS_SIZE)
+#define A2B_TO_SPORT_CFG_USE_SYSLOG
 
 #endif
-

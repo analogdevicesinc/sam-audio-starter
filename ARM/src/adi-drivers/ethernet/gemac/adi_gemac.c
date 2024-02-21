@@ -1288,6 +1288,20 @@ void EMACInterruptHandler(uint32_t IID, void *pCBParm)
     }
 #endif
 
+#ifdef GEMAC_SUPPORT_LPI
+    if (pDev->Capability & ADI_EMAC_CAPABILITY_LPI)
+    {
+        /* GLPI interrupt */
+        if (mashed_status & BITM_EMAC_DMA0_STAT_GLPII)
+        {
+            uint32_t VAR_UNUSED_DECR(nLPIStat);
+
+            /* Read the LPI_CTLSTAT register to clear the interrupt */
+            nLPIStat = pEmacRegs->EMAC_LPI_CTLSTAT;
+        }
+    }
+#endif
+
     /* IEEE-1588 time stamp trigger interrupt */
     if (mashed_status & BITM_EMAC_DMA_STAT_TTI)
     {

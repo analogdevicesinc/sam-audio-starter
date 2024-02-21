@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -60,6 +60,7 @@ struct sUART {
     uint8_t tx_buffer[UART_BUFFER_SIZE];
     volatile uint16_t tx_buffer_readptr;
     uint16_t tx_buffer_writeptr;
+    uint16_t tx_size;
 
     // read/write timeouts mode
     int32_t readTimeout;
@@ -95,31 +96,8 @@ __attribute__ ((section(".l3_uncached_data")))
 
 static bool uart_cdc_initialized = false;
 
-static UART_SIMPLE_INT_RESULT _uart_cdc_isr_writeToRXBuffer(sUART *uart, uint8_t val)
-{
-    // First check if RX buffer is full
-    if (((uart->rx_buffer_writeptr+1) % UART_BUFFER_SIZE) == uart->rx_buffer_readptr) {
-        return UART_SIMPLE_RX_FIFO_FULL_INT;
-    }
-
-    // Write value into FIFO
-    uart->rx_buffer[uart->rx_buffer_writeptr] = val;
-    uart->rx_buffer_writeptr++;
-
-    // wrap pointer if necessary
-    if (uart->rx_buffer_writeptr >= UART_BUFFER_SIZE) {
-        uart->rx_buffer_writeptr = 0;
-    }
-
-    return UART_SIMPLE_RX_OK;
-}
-
-/*
- * FIXME: Send out chunks of data instead of char by char
- */
 UART_SIMPLE_INT_RESULT _uart_cdc_isr_readFromTXBuffer(sUART *uart, uint8_t *val)
 {
-    uint8_t *c;
     CLD_USB_Data_Transmit_Return_Type ok;
     UART_SIMPLE_INT_RESULT ret;
 
@@ -128,11 +106,15 @@ UART_SIMPLE_INT_RESULT _uart_cdc_isr_readFromTXBuffer(sUART *uart, uint8_t *val)
         return UART_SIMPLE_TX_FIFO_EMPTY;
     }
 
-    // fetch latest value from TX buffer
-    c = &uart->tx_buffer[uart->tx_buffer_readptr];
+    // fetch latest chunk from TX buffer
+    if (uart->tx_buffer_writeptr < uart->tx_buffer_readptr) {
+        uart->tx_size = UART_BUFFER_SIZE - uart->tx_buffer_readptr;
+    } else {
+        uart->tx_size = uart->tx_buffer_writeptr - uart->tx_buffer_readptr;
+    }
 
-    /* Send out the byte */
-    ok = cdc_tx_serial_data(1, c, 10);
+    /* Send out the chunk */
+    ok = cdc_tx_serial_data(uart->tx_size, &uart->tx_buffer[uart->tx_buffer_readptr], 100);
 
     /* Return the result */
     ret = (ok == CLD_USB_TRANSMIT_SUCCESSFUL) ?
@@ -151,7 +133,7 @@ void _uart_cdc_tx_complete(CDC_TX_STATUS status, void *usrPtr)
 #endif
 
     /* Increment the TX read pointer upon completion */
-    uart->tx_buffer_readptr++;
+    uart->tx_buffer_readptr += uart->tx_size;
     if (uart->tx_buffer_readptr >= UART_BUFFER_SIZE) {
         uart->tx_buffer_readptr = 0;
     }
@@ -176,27 +158,39 @@ void _uart_cdc_rx_complete(unsigned char *buffer,
     unsigned short length, void *usrPtr)
 {
     sUART *uart = (sUART *)usrPtr;
-    UART_SIMPLE_INT_RESULT result;
-    unsigned short i;
+    unsigned short idx;
+    unsigned short size;
+    bool full;
 #ifdef FREE_RTOS
     BaseType_t rtosResult;
     BaseType_t contextSwitch = pdFALSE;
 #endif
 
-    /* Put received bytes into the RX buffer */
-    for (i = 0; i < length; i++) {
-        result = _uart_cdc_isr_writeToRXBuffer(uart, buffer[i]);
-        if (result != UART_SIMPLE_RX_OK) {
-            break;
+    idx = 0;
+    do {
+        full = ((uart->rx_buffer_writeptr + 1) % UART_BUFFER_SIZE) == uart->rx_buffer_readptr;
+        if (!full) {
+            if (uart->rx_buffer_writeptr < uart->rx_buffer_readptr) {
+                size = uart->rx_buffer_readptr - uart->rx_buffer_writeptr - 1;
+            } else {
+                size = UART_BUFFER_SIZE - uart->rx_buffer_writeptr;
+            }
+            if (size > length) {
+                size = length;
+            }
+            memcpy(&uart->rx_buffer[uart->rx_buffer_writeptr], &buffer[idx], size);
+            length -= size; idx += size; uart->rx_buffer_writeptr += size;
+            if (uart->rx_buffer_writeptr >= UART_BUFFER_SIZE) {
+                uart->rx_buffer_writeptr = 0;
+            }
         }
-    }
+    } while (length && !full);
 
 #ifdef FREE_RTOS
     /* Wake any blocked threads if new data is available */
-    if ((i > 0) && (uart->rxSleeping)) {
+    if ((idx > 0) && (uart->rxSleeping)) {
         rtosResult = xSemaphoreGiveFromISR(uart->portRxBlock, &contextSwitch);
         portYIELD_FROM_ISR(contextSwitch);
-        uart->rxSleeping = false;
     }
 #endif
 
@@ -228,13 +222,9 @@ UART_SIMPLE_RESULT uart_cdc_read(sUART *uart, uint8_t *in, uint8_t *inLen)
     UART_EXIT_CRITICAL();
     if (empty) {
         rtosResult = xSemaphoreTake(uart->portRxBlock, uart->readTimeout);
-        if (rtosResult == pdFALSE) {
-            UART_ENTER_CRITICAL();
-            if (uart->rxSleeping) {
-                uart->rxSleeping = false;
-            }
-            UART_EXIT_CRITICAL();
-        }
+        UART_ENTER_CRITICAL();
+        uart->rxSleeping = false;
+        UART_EXIT_CRITICAL();
     }
 #else
     if (uart->readTimeout == UART_SIMPLE_TIMEOUT_INF) {
@@ -244,14 +234,21 @@ UART_SIMPLE_RESULT uart_cdc_read(sUART *uart, uint8_t *in, uint8_t *inLen)
     }
 #endif
 
-    empty = (uart->rx_buffer_writeptr == uart->rx_buffer_readptr);
-    for (i = 0; (i < *inLen) && !empty; i++) {
-        in[i] = uart->rx_buffer[uart->rx_buffer_readptr++];
-        if (uart->rx_buffer_readptr >= UART_BUFFER_SIZE) {
-            uart->rx_buffer_readptr = 0;
-        }
-        empty = (uart->rx_buffer_writeptr == uart->rx_buffer_readptr);
+    UART_ENTER_CRITICAL();
+    if (uart->rx_buffer_writeptr < uart->rx_buffer_readptr) {
+        i = UART_BUFFER_SIZE - uart->rx_buffer_readptr;
+    } else {
+        i = uart->rx_buffer_writeptr - uart->rx_buffer_readptr;
     }
+    UART_EXIT_CRITICAL();
+    i = *inLen < i ? *inLen : i;
+    memcpy(in, &uart->rx_buffer[uart->rx_buffer_readptr], i);
+    UART_ENTER_CRITICAL();
+    uart->rx_buffer_readptr += i;
+    if (uart->rx_buffer_readptr >= UART_BUFFER_SIZE) {
+        uart->rx_buffer_readptr = 0;
+    }
+    UART_EXIT_CRITICAL();
 
 #ifdef FREE_RTOS
     rtosResult = xSemaphoreGive(uart->portRxLock);
@@ -289,7 +286,7 @@ UART_SIMPLE_RESULT uart_cdc_write(sUART *uart, uint8_t *out, uint8_t *outLen)
 
 #ifdef FREE_RTOS
         UART_ENTER_CRITICAL();
-        full = ((uart->tx_buffer_writeptr+1) % UART_BUFFER_SIZE) == uart->tx_buffer_readptr;
+        full = ((uart->tx_buffer_writeptr + 1) % UART_BUFFER_SIZE) == uart->tx_buffer_readptr;
         transmitting = uart->transmitting;
         goToSleep = full & transmitting;
         if (goToSleep) {
@@ -312,11 +309,12 @@ UART_SIMPLE_RESULT uart_cdc_write(sUART *uart, uint8_t *out, uint8_t *outLen)
         } while (full);
 #endif
 
+        UART_ENTER_CRITICAL();
         uart->tx_buffer[uart->tx_buffer_writeptr++] = out[i];
-
         if (uart->tx_buffer_writeptr >= UART_BUFFER_SIZE) {
             uart->tx_buffer_writeptr = 0;
         }
+        UART_EXIT_CRITICAL();
     }
 
     /* Report back the bytes written */

@@ -674,12 +674,13 @@ void *umm_calloc( size_t num, size_t item_size ) {
 }
 
 /* ------------------------------------------------------------------------ */
+#include <inttypes.h>
 
 void *umm_malloc_heap_aligned(umm_heap_t heap, size_t size, size_t alignment)
 {
     void *buf;
     ALIGNED *aligned;
-    unsigned ptr;
+    uintptr_t ptr;
 
     size = ((size - 1)/alignment + 1) * alignment;
 
@@ -688,7 +689,7 @@ void *umm_malloc_heap_aligned(umm_heap_t heap, size_t size, size_t alignment)
         return(buf);
     }
 
-    ptr = (unsigned)buf;
+    ptr = (uintptr_t)buf;
     ptr = ((ptr + alignment) & ~(alignment - 1));
 
     aligned = (ALIGNED *)(ptr - sizeof(ALIGNED));
@@ -705,7 +706,7 @@ void *umm_malloc_aligned( size_t size, size_t alignment )
 void umm_free_heap_aligned( umm_heap_t heap, void *ptr )
 {
     ALIGNED *aligned;
-    aligned = (ALIGNED *)((unsigned)ptr - sizeof(ALIGNED));
+    aligned = (ALIGNED *)((uintptr_t)ptr - sizeof(ALIGNED));
     umm_free_heap(heap, aligned->basePtr);
 }
 

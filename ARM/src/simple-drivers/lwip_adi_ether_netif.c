@@ -1,45 +1,18 @@
-/******************************************************************************
- *  Copyright 2020(c) Analog Devices, Inc.
+/**
+ * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * This software is proprietary and confidential to Analog Devices, Inc.
+ * and its licensors.
  *
- *  All rights reserved.
- *
- *  Redistribution and use in source and binary forms, with or without
- *  modification, are permitted provided that the following conditions are met:
- *
- *      - Redistributions of source code must retain the above copyright
- *        notice, this list of conditions and the following disclaimer.
- *      - Redistributions in binary form must reproduce the above copyright
- *        notice, this list of conditions and the following disclaimer in
- *        the documentation and/or other materials provided with the
- *        distribution.
- *      - Neither the name of Analog Devices, Inc. nor the names of its
- *        contributors may be used to endorse or promote products derived
- *        from this software without specific prior written permission.
- *      - The use of this software may or may not infringe the patent rights
- *        of one or more patent holders.  This license does not release you
- *        from the requirement that you obtain separate licenses from these
- *        patent holders to use this software.
- *      - Use of the software either in source or binary form or filter designs
- *        resulting from the use of this software, must be connected to, run
- *        on or loaded to an Analog Devices Inc. component.
- *
- *  THIS SOFTWARE IS PROVIDED BY ANALOG DEVICES "AS IS" AND ANY EXPRESS OR
- *  IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, NON-INFRINGEMENT,
- *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- *
- *  IN NO EVENT SHALL ANALOG DEVICES BE LIABLE FOR ANY DIRECT, INDIRECT,
- *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- *  BUT NOT LIMITED TO, INTELLECTUAL PROPERTY RIGHTS, PROCUREMENT OF
- *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- *  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- *  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- *  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- *  THE POSSIBILITY OF SUCH DAMAGE.
- *****************************************************************************/
+ * This software is subject to the terms and conditions of the license set
+ * forth in the project LICENSE file. Downloading, reproducing, distributing or
+ * otherwise using the software constitutes acceptance of the license. The
+ * software may not be used except as expressly authorized under the license.
+ */
 
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <machine/endian.h>
 
 #include "lwip/opt.h"
 #include "lwip/def.h"
@@ -53,6 +26,10 @@
 /* Make sure ETH_PAD_SIZE is set to 2 */
 #if !defined(ETH_PAD_SIZE) || (ETH_PAD_SIZE != 2)
 #error ETH_PAD_SIZE must be 2
+#endif
+
+#ifndef ADI_ETHER_MAX_NETIFS
+#define ADI_ETHER_MAX_NETIFS 2
 #endif
 
 /* Network interface name */
@@ -436,7 +413,7 @@ adi_ether_netif_ptp_frame(struct adi_ether_netif *adi_ether, ADI_ETHER_BUFFER *p
 
     /* Call the callback */
     if (adi_ether->ptpPktCb) {
-        adi_ether->ptpPktCb(in, len, pktType,
+        adi_ether->ptpPktCb(adi_ether, in, len, pktType,
             pktBuffer->TimeStamp.LSecond, pktBuffer->TimeStamp.NanoSecond);
     }
 
@@ -446,6 +423,64 @@ adi_ether_netif_ptp_frame(struct adi_ether_netif *adi_ether, ADI_ETHER_BUFFER *p
         sys_mutex_lock(&adi_ether->readLock);
         adi_ether_Read(adi_ether->hEthernet, pktBuffer);
         sys_mutex_unlock(&adi_ether->readLock);
+    }
+}
+
+/*
+ * Check if a frame is a 1722 frame
+ */
+#define ETHTYPE_AVBTP   0x22f0
+static bool isP1722(ADI_ETHER_BUFFER *pktBuffer)
+{
+    struct eth_hdr *ethhdr;
+    struct eth_vlan_hdr *vlan;
+    bool is1722 = false;
+
+    /* Examine the Ethernet header */
+    ethhdr = (struct eth_hdr *)pktBuffer->Data;
+
+    /* Identify and process 1722 AAF frames */
+    if (ethhdr->type == __htons(ETHTYPE_VLAN)) {
+        vlan = (struct eth_vlan_hdr *)((uint8_t *)pktBuffer->Data + SIZEOF_ETH_HDR);
+        if (vlan->tpid == __htons(ETHTYPE_AVBTP)) {
+            is1722 = true;
+        }
+    }
+
+    return(is1722);
+}
+
+/* This function returns a 1722 Rx frame to the driver */
+void
+adi_ether_netif_p1722_free(struct adi_ether_netif *adi_ether, void *p)
+{
+    ADI_ETHER_BUFFER *pktBuffer = (ADI_ETHER_BUFFER *)p;
+
+    /* Return receive pktBuffers to the driver */
+    adi_ether_netif_reset_rx_buff(pktBuffer);
+    sys_mutex_lock(&adi_ether->readLock);
+    adi_ether_Read(adi_ether->hEthernet, pktBuffer);
+    sys_mutex_unlock(&adi_ether->readLock);
+}
+
+
+/*
+ * Receive a p1722 rx frame into 1722 stack.
+ * WARNING: This function assumes ETH_PAD_SIZE is 2
+ */
+static void
+adi_ether_netif_p1722_frame(struct adi_ether_netif *adi_ether, ADI_ETHER_BUFFER *pktBuffer)
+{
+    uint16_t len;
+    uint8_t *in;
+
+    /* Get the length from the first 2 bytes of the frame */
+    in = (uint8_t *)pktBuffer->Data;
+    len = *((uint16_t *)in);
+
+    /* Call the callback */
+    if (adi_ether->p1722PktCb) {
+        adi_ether->p1722PktCb(adi_ether, in, len, pktBuffer);
     }
 }
 
@@ -482,6 +517,8 @@ adi_ether_netif_worker(void *pvParameters)
                     pktBuffer->pNext = NULL;
                     if (pktBuffer->Status & ADI_ETHER_BUFFER_STATUS_TIMESTAMP_AVAIL) {
                         adi_ether_netif_ptp_frame(adi_ether, pktBuffer, ADI_ETHER_PKT_TYPE_RX);
+                    } else if (isP1722(pktBuffer)) {
+                        adi_ether_netif_p1722_frame(adi_ether, pktBuffer);
                     } else {
                         adi_ether_netif_lwip_rx_frame(adi_ether, pktBuffer);
                     }
@@ -588,6 +625,8 @@ adi_ether_netif_low_level_init(struct netif *netif)
     /* Set ADI EMAC driver entry point */
     if (adi_ether->port == EMAC0) {
         driverEntry = &GEMAC0DriverEntry;
+    } else if (adi_ether->port == EMAC1) {
+        driverEntry = &GEMAC1DriverEntry;
     } else {
         return;
     }
@@ -665,6 +704,7 @@ adi_ether_netif_init(struct netif *netif)
 
     netif->name[0] = IFNAME0;
     netif->name[1] = IFNAME1;
+    netif->num = adi_ether->idx;
 
 #if LWIP_IPV4
     netif->output = etharp_output;
@@ -688,25 +728,35 @@ adi_ether_netif_init(struct netif *netif)
 }
 
 #if 0
-static adi_ether_netif netifs[1] __attribute__ ((section(".l3_uncached_data"))) = { 0 };
+static adi_ether_netif netifs[ADI_ETHER_MAX_NETIFS]
+    __attribute__ ((section(".l3_uncached_data"))) = { 0 };
 #else
-static adi_ether_netif netifs[1]  __attribute__((aligned (32)));
+static adi_ether_netif netifs[ADI_ETHER_MAX_NETIFS]
+    __attribute__((aligned (32)));
 #endif
 
 adi_ether_netif *
 adi_ether_netif_new(void *usrPtr)
 {
     adi_ether_netif *adi_ether;
+    int i;
 
-    adi_ether = &netifs[0];
+    /* Find an available netif */
+    for (i = 0; i < ADI_ETHER_MAX_NETIFS; i++) {
+        adi_ether = &netifs[i];
+        if (!adi_ether->allocated) {
+            break;
+        }
+    }
 
-    /* Return NULL if already in use */
-    if (adi_ether->allocated) {
+    /* Return NULL if no netifs available */
+    if (i == ADI_ETHER_MAX_NETIFS) {
         return(NULL);
     }
 
     /* Mark instance as being allocated */
     adi_ether->allocated = true;
+    adi_ether->idx = i;
 
     /* Reset Rx/Tx packet buffers */
     ADI_ETHER_MEMSET(adi_ether->rxBuff, 0, sizeof(adi_ether->rxBuff));
@@ -747,7 +797,7 @@ adi_ether_netif_set_src_addr_filt(struct netif *netif,
     struct adi_ether_netif *adi_ether = netif->state;
     adi_ether_SetSrcAddrFilt(adi_ether->hEthernet, ipAddr, ipMaskBits, invert);
     return ERR_OK;
-    }
+}
 
 err_t
 adi_ether_netif_set_src_addr_filt_enable(struct netif *netif,
@@ -756,7 +806,7 @@ adi_ether_netif_set_src_addr_filt_enable(struct netif *netif,
     struct adi_ether_netif *adi_ether = netif->state;
     adi_ether_SetSrcAddrFiltEnable(adi_ether->hEthernet, enable);
     return ERR_OK;
-    }
+}
 
 err_t
 adi_ether_netif_set_dst_port_filt(struct netif *netif,
@@ -765,7 +815,7 @@ adi_ether_netif_set_dst_port_filt(struct netif *netif,
     struct adi_ether_netif *adi_ether = netif->state;
     adi_ether_SetDstPortFilt(adi_ether->hEthernet, port, udp, invert);
     return ERR_OK;
-    }
+}
 
 err_t
 adi_ether_netif_set_dst_port_filt_enable(struct netif *netif,

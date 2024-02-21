@@ -8,10 +8,16 @@
  * otherwise using the software constitutes acceptance of the license. The
  * software may not be used except as expressly authorized under the license.
  */
-
 #ifndef _init_h
 #define _init_h
 
+/* Standard includes */
+#include <stdint.h>
+
+/* CCES includes */
+#include <services/gpio/adi_gpio.h>
+
+/* Project includes */
 #include "context.h"
 #include "twi_simple.h"
 
@@ -27,7 +33,7 @@
 #define LED2            ADI_GPIO_PIN_2
 #define LED3            ADI_GPIO_PIN_3
 
-void system_clk_init(void);
+void system_clk_init(uint32_t *cclk);
 void cgu_ts_init(void);
 void gpio_init(void);
 void gic_init(void);

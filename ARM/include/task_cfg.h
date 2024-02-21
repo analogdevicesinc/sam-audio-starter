@@ -24,7 +24,6 @@
 #define WAV_TASK_PRIORITY           (tskIDLE_PRIORITY + 3)
 #define RTP_TASK_PRIORITY           (tskIDLE_PRIORITY + 3)
 #define VBAN_TASK_PRIORITY          (tskIDLE_PRIORITY + 3)
-#define FILE_TASK_PRIORITY          (tskIDLE_PRIORITY + 3)
 #define ETHERNET_PRIORITY           (tskIDLE_PRIORITY + 4)
 #define STARTUP_TASK_HIGH_PRIORITY  (tskIDLE_PRIORITY + 5)
 
@@ -36,7 +35,6 @@
 #define WAV_TASK_STACK_SIZE        (configMINIMAL_STACK_SIZE + 128)
 #define RTP_TASK_STACK_SIZE        (configMINIMAL_STACK_SIZE + 256)
 #define VBAN_TASK_STACK_SIZE       (configMINIMAL_STACK_SIZE + 256)
-#define FILE_TASK_STACK_SIZE       (configMINIMAL_STACK_SIZE + 256)
 #define GENERIC_TASK_STACK_SIZE    (configMINIMAL_STACK_SIZE)
 
 #endif

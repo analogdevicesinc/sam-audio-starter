@@ -1,3 +1,14 @@
+/**
+ * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * This software is proprietary and confidential to Analog Devices, Inc.
+ * and its licensors.
+ *
+ * This software is subject to the terms and conditions of the license set
+ * forth in the project LICENSE file. Downloading, reproducing, distributing or
+ * otherwise using the software constitutes acceptance of the license. The
+ * software may not be used except as expressly authorized under the license.
+ */
+
 #ifndef _lwip_adi_ether_netif_h
 #define _lwip_adi_ether_netif_h
 
@@ -24,7 +35,8 @@
 #define ADI_ETHER_NUM_MBOX_EVENTS       (20)
 
 typedef enum ADI_ETHER_EMAC_PORT {
-    EMAC0 = 0,
+    EMAC_UNKNOWN = 0,
+    EMAC0,
     EMAC1
 } ADI_ETHER_EMAC_PORT;
 
@@ -57,8 +69,17 @@ enum PKT_TYPES {
     ADI_ETHER_PKT_TYPE_RX
 };
 
-typedef void (*ADI_ETHER_PTP_CB)(uint8_t *pktData, uint16_t pktSize, uint8_t pktType,
+typedef struct adi_ether_netif adi_ether_netif;
+
+typedef void (*ADI_ETHER_PTP_CB)(adi_ether_netif *netif,
+    uint8_t *pktData, uint16_t pktSize, uint8_t pktType,
     uint32_t second, uint32_t nanoSecond);
+
+typedef void (*ADI_ETHER_P1722_CB)(adi_ether_netif *netif,
+    uint8_t *pktData, uint16_t pktSize, void *pkt);
+
+void adi_ether_netif_p1722_free(adi_ether_netif *netif, 
+    void *pkt);
 
 /*
  * The rxPktData and txPktData buffers are at the top to facilitate
@@ -124,9 +145,13 @@ typedef struct adi_ether_netif {
 
     /* Allocated indication */
     bool allocated;
+    int idx;
 
     /* PTP packet time callback */
     ADI_ETHER_PTP_CB ptpPktCb;
+
+    /* 1722 packet callback */
+    ADI_ETHER_P1722_CB p1722PktCb;
 
     /* User pointer */
     void *usrPtr;

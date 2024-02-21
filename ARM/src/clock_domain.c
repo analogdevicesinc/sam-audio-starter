@@ -89,8 +89,6 @@ void clock_domain_init(APP_CONTEXT *context)
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_WAV_SRC);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_WAV_SINK);
     clock_domain_set(context, CLOCK_DOMAIN_RTP, CLOCK_DOMAIN_BITM_RTP_RX);
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_FILE_SRC);
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_FILE_SINK);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_RTP_TX);
     clock_domain_set(context, CLOCK_DOMAIN_VBAN, CLOCK_DOMAIN_BITM_VBAN_RX);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VBAN_TX);

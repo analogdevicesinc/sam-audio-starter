@@ -35,11 +35,11 @@
 #include "lwip_adi_ether_netif.h"
 #include "lwip/netif.h"
 #include "wav_file.h"
-#include "data_file.h"
 #include "clock_domain_defs.h"
 #include "rtp_stream.h"
 #include "vban_stream.h"
 #include "task_cfg.h"
+#include "spiffs.h"
 
 /* Misc defines */
 #define UNUSED(expr) do { (void)(expr); } while (0)
@@ -48,40 +48,28 @@
 #define SAM_VERSION_1  100
 #define SAM_VERSION_2  200
 
-/* The priorities assigned to the tasks (higher number == higher prio). */
-#define HOUSEKEEPING_PRIORITY       (tskIDLE_PRIORITY + 2)
-#define STARTUP_TASK_LOW_PRIORITY   (tskIDLE_PRIORITY + 2)
-#define UAC20_TASK_PRIORITY         (tskIDLE_PRIORITY + 3)
-#define WAV_TASK_PRIORITY           (tskIDLE_PRIORITY + 3)
-#define STARTUP_TASK_HIGH_PRIORITY  (tskIDLE_PRIORITY + 5)
-
-/* The some shell commands require a little more stack (startup task). */
-#define STARTUP_TASK_STACK_SIZE    (configMINIMAL_STACK_SIZE + 8192)
-#define UAC20_TASK_STACK_SIZE      (configMINIMAL_STACK_SIZE + 128)
-#define WAV_TASK_STACK_SIZE        (configMINIMAL_STACK_SIZE + 128)
-#define GENERIC_TASK_STACK_SIZE    (configMINIMAL_STACK_SIZE)
-
 /*
  * WARNING: Do not change SYSTEM_AUDIO_TYPE from int32_t
  *
  */
 #define SYSTEM_MCLK_RATE               (24576000)
 #define SYSTEM_SAMPLE_RATE             (48000)
-#define SYSTEM_BLOCK_SIZE              (16)
+#define SYSTEM_BLOCK_SIZE              (64)
 #define SYSTEM_AUDIO_TYPE              int32_t
 #define SYSTEM_MAX_CHANNELS            (32)
+#define WAV_MAX_CHANNELS               (64)
 
-#define USB_DEFAULT_IN_AUDIO_CHANNELS  (32)       /* USB IN endpoint audio */
-#define USB_DEFAULT_OUT_AUDIO_CHANNELS (32)       /* USB OUT endpoint audio */
-#define USB_DEFAULT_WORD_SIZE_BITS     (32)
+#define USB_DEFAULT_IN_AUDIO_CHANNELS  (16)       /* USB IN endpoint audio */
+#define USB_DEFAULT_OUT_AUDIO_CHANNELS (16)       /* USB OUT endpoint audio */
+#define USB_DEFAULT_WORD_SIZE          (sizeof(int16_t))
 #define USB_TIMER                      (0)
 #define USB_VENDOR_ID                  (0x064b)  /* Analog Devices Vendor ID */
 #define USB_PRODUCT_ID                 (0x0007)  /* CLD UAC+CDC */
 #define USB_MFG_STRING                 "Analog Devices, Inc."
-#define USB_PRODUCT_STRING             "Audio v2.0 Device"
+#define USB_PRODUCT_STRING             "Audio v2.0 Device (SAM 16x16)"
 #define USB_SERIAL_NUMBER_STRING       NULL
-#define USB_OUT_RING_BUFF_FRAMES       1024
-#define USB_IN_RING_BUFF_FRAMES        1024
+#define USB_OUT_RING_BUFF_FRAMES       (4 * SYSTEM_BLOCK_SIZE)
+#define USB_IN_RING_BUFF_FRAMES        (4 * SYSTEM_BLOCK_SIZE)
 #define USB_OUT_RING_BUFF_FILL         (USB_OUT_RING_BUFF_FRAMES / 2)
 #define USB_IN_RING_BUFF_FILL          (USB_IN_RING_BUFF_FRAMES / 2)
 
@@ -104,6 +92,9 @@
 
 #define AD2425W_SAM_I2C_ADDR           (0x68)
 
+#define SPIFFS_VOL_NAME                "sf:"
+#define SDCARD_VOL_NAME                "sd:"
+
 typedef enum A2B_BUS_MODE {
     A2B_BUS_MODE_UNKNOWN = 0,
     A2B_BUS_MODE_MAIN,
@@ -116,10 +107,10 @@ typedef enum A2B_BUS_MODE {
 /* Audio routing */
 #define MAX_AUDIO_ROUTES               (16)
 
-#define DEFAULT_IP_ADDR                "192.168.90.103"
-#define DEFAULT_GW_ADDR                "0.0.0.0"
+#define DEFAULT_IP_ADDR                "192.168.2.2"
+#define DEFAULT_GW_ADDR                "192.168.2.1"
 #define DEFAULT_NETMASK                "255.255.255.0"
-#define DEFAULT_STATIC_IP              true
+#define DEFAULT_STATIC_IP              false
 
 /* Task notification values */
 enum {
@@ -157,7 +148,7 @@ enum ETHERNET_EVENT_BITS {
 typedef struct APP_CFG {
     int usbOutChannels;
     int usbInChannels;
-    int usbWordSizeBits;
+    int usbWordSize;
     bool usbRateFeedbackHack;
     char *ip_addr;
     char *gateway_addr;
@@ -174,6 +165,9 @@ struct _APP_CONTEXT {
 
     /* SAM Version */
     int samVersion;
+
+    /* Core clock frequency */
+    uint32_t cclk;
 
     /* Device handles */
     sUART *stdioHandle;
@@ -192,9 +186,11 @@ struct _APP_CONTEXT {
     sSPORT *a2bSportOutHandle;
     sSPORT *a2bSportInHandle;
     sSDCARD *sdcardHandle;
+    spiffs *spiffsHandle;
 
     /* SHARC status */
     volatile bool sharc0Ready;
+    volatile bool sharc1Ready;
 
     /* Shell context */
     SHELL_CONTEXT shell;
@@ -237,8 +233,6 @@ struct _APP_CONTEXT {
     TaskHandle_t rtpTxTaskHandle;
     TaskHandle_t vbanRxTaskHandle;
     TaskHandle_t vbanTxTaskHandle;
-    TaskHandle_t fileSrcTaskHandle;
-    TaskHandle_t fileSinkTaskHandle;
     TaskHandle_t a2bSlaveTaskHandle;
 
     /* A2B XML init items */
@@ -260,8 +254,6 @@ struct _APP_CONTEXT {
     void *rtpAudioTx[1];
     void *vbanAudioRx[1];
     void *vbanAudioTx[1];
-    void *dataFileSrc[1];
-    void *dataFileSink[1];
 
     /* Audio ping/pong buffer lengths */
     unsigned codecAudioInLen;
@@ -278,8 +270,6 @@ struct _APP_CONTEXT {
     unsigned rtpAudioTxLen;
     unsigned vbanAudioRxLen;
     unsigned vbanAudioTxLen;
-    unsigned dataFileSrcLen;
-    unsigned dataFileSinkLen;
 
     /* SAE buffer pointers */
     SAE_MSG_BUFFER *codecMsgIn[2];
@@ -296,8 +286,6 @@ struct _APP_CONTEXT {
     SAE_MSG_BUFFER *rtpMsgTx[1];
     SAE_MSG_BUFFER *vbanMsgRx[1];
     SAE_MSG_BUFFER *vbanMsgTx[1];
-    SAE_MSG_BUFFER *fileMsgSrc[1];
-    SAE_MSG_BUFFER *fileMsgSink[1];
 
     /* Audio routing table */
     SAE_MSG_BUFFER *routingMsgBuffer;
@@ -324,9 +312,6 @@ struct _APP_CONTEXT {
     PaUtilRingBuffer *wavSinkRB;
     void *wavSinkRBData;
 
-    char *wavRecordFile;
-    unsigned wavFileIndex;
-
     /* RTP related variables and settings */
     RTP_STREAM rtpRx;
     RTP_STREAM rtpTx;
@@ -343,20 +328,9 @@ struct _APP_CONTEXT {
     PaUtilRingBuffer *vbanTxRB;
     void *vbanTxRBData;
 
-    /* data file related variables and settings */
-    DATA_FILE fileSrc;
-    DATA_FILE fileSink;
-    PaUtilRingBuffer *fileSrcRB;
-    void *fileSrcRBData;
-    PaUtilRingBuffer *fileSinkRB;
-    void *fileSinkRBData;
-
-    #define FILE_READ_BUF_SIZE  (SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE)
-
     /* A2B mode */
     A2B_BUS_MODE a2bmode;
     bool a2bSlaveActive;
-    bool discoverCmdStatus;
 
     /* Clock domain management */
     uint32_t clockDomainMask[CLOCK_DOMAIN_MAX];

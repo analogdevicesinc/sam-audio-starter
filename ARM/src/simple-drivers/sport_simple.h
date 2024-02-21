@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -142,7 +142,7 @@ typedef enum SPORT_SIMPLE_PORT {
     SPORT3A,
     SPORT3B,
 #if defined(__ADSPSC589_FAMILY__) || defined(__ADSP21569_FAMILY__) || \
-    defined(__ADSPSC594_FAMILY__)
+    defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
     SPORT4A,
     SPORT4B,
     SPORT5A,
@@ -421,7 +421,7 @@ struct SPORT_SIMPLE_CONFIG {
 
     /**
      * Set to true for tighter synchronization between the DMA work unit
-     * completion and audio callback.  May cause SPORT underruns for very 
+     * completion and audio callback.  May cause SPORT underruns for very
      * high bandwidth streams.
      */
     bool syncDMA;

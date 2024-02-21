@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -30,7 +30,7 @@
 #include <sys/anomaly_macros_rtl.h>
 #include <services/int/adi_int.h>
 #if defined(__ADSPARM__)
-#include <adi/cortex-a5/runtime/cache/adi_cache.h>
+#include <runtime/cache/adi_cache.h>
 #else
 #include <sys/cache.h>
 #endif
@@ -477,7 +477,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP62;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP101;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP93;
 #else
 #error Unsupported processor!
@@ -493,7 +493,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP63;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP102;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP94;
 #else
 #error Unsupported processor!
@@ -531,7 +531,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP64;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP103;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP95;
 #else
 #error Unsupported processor!
@@ -548,7 +548,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP65;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP104;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP96;
 #else
 #error Unsupported processor!
@@ -586,7 +586,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP73;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP105;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP97;
 #else
 #error Unsupported processor!
@@ -603,12 +603,12 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP74;
 #elif defined(__ADSPSC589_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP106;
-#elif defined(__ADSPSC594_FAMILY__)
+#elif defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP98;
 #else
 #error Unsupported processor!
 #endif
-#if defined(__ADSPSC594_FAMILY__)
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
         }
         else if (port == SPI3) {
             spi->pREG_SPI_SLVSEL   = pREG_SPI3_SLVSEL;
@@ -636,7 +636,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_TX_DMA_XCNT       = pREG_DMA55_XCNT;
             spi->pREG_TX_DMA_XMOD       = pREG_DMA55_XMOD;
             spi->pREG_TX_DMA_STAT       = pREG_DMA55_STAT;
-#if defined(__ADSPSC594_FAMILY__)
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_TX_DMA_SPU_SECURE = pREG_SPU0_SECUREP99;
 #else
 #error Unsupported processor!
@@ -646,7 +646,7 @@ SPI_SIMPLE_RESULT spi_init(void)
             spi->pREG_RX_DMA_XCNT       = pREG_DMA56_XCNT;
             spi->pREG_RX_DMA_XMOD       = pREG_DMA56_XMOD;
             spi->pREG_RX_DMA_STAT       = pREG_DMA56_STAT;
-#if defined(__ADSPSC594_FAMILY__)
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
             spi->pREG_RX_DMA_SPU_SECURE = pREG_SPU0_SECUREP100;
 #else
 #error Unsupported processor!
@@ -863,7 +863,7 @@ static void spi_setup_dma(sSPI *spi, uint16_t len, void *rx, void *tx)
     if (rx != NULL) {
         rx = local_to_system_addr(rx);
         *spi->pREG_RX_DMA_STAT = ENUM_DMA_STAT_PIRQ | ENUM_DMA_STAT_IRQERR | ENUM_DMA_STAT_IRQDONE;
-        *spi->pREG_RX_DMA_ADDRSTART = (uint32_t)rx;
+        *spi->pREG_RX_DMA_ADDRSTART = (uintptr_t)rx;
         *spi->pREG_RX_DMA_XCNT = len;
         *spi->pREG_RX_DMA_XMOD = stride;
         *spi->pREG_RX_DMA_CFG = cfg | ENUM_DMA_CFG_WRITE;
@@ -873,7 +873,7 @@ static void spi_setup_dma(sSPI *spi, uint16_t len, void *rx, void *tx)
     if (tx != NULL) {
         tx = local_to_system_addr(tx);
         *spi->pREG_TX_DMA_STAT = ENUM_DMA_STAT_PIRQ | ENUM_DMA_STAT_IRQERR | ENUM_DMA_STAT_IRQDONE;
-        *spi->pREG_TX_DMA_ADDRSTART = (uint32_t)tx;
+        *spi->pREG_TX_DMA_ADDRSTART = (uintptr_t)tx;
         *spi->pREG_TX_DMA_XCNT = len;
         *spi->pREG_TX_DMA_XMOD = stride;
         *spi->pREG_TX_DMA_CFG = cfg | ENUM_DMA_CFG_READ;

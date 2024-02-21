@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
 #include "adi_a2b_commandlist.h"
 
@@ -44,6 +45,7 @@ typedef enum _ADI_A2B_CMDLIST_RESULT {
     ADI_A2B_CMDLIST_A2B_BUS_NEG_SHORT_TO_VBAT,
     ADI_A2B_CMDLIST_A2B_BUS_SHORT_TOGETHER,
     ADI_A2B_CMDLIST_A2B_BUS_OPEN_OR_WRONG_PORT,
+    ADI_A2B_CMDLIST_A2B_BUS_REVERSED_OR_OPEN,
     ADI_A2B_CMDLIST_A2B_BUS_REVERSED_OR_WRONG_PORT,
     ADI_A2B_CMDLIST_A2B_BUS_INDETERMINATE_FAULT,
     ADI_A2B_CMDLIST_A2B_BUS_UNKNOWN_FAULT,
@@ -52,8 +54,63 @@ typedef enum _ADI_A2B_CMDLIST_RESULT {
     ADI_A2B_CMDLIST_A2B_BUS_SHORT_TO_VBAT,
     ADI_A2B_CMDLIST_A2B_BUS_DISCONNECT_OR_OPEN_CIRCUIT,
     ADI_A2B_CMDLIST_A2B_BUS_REVERSE_CONNECTED,
+    ADI_A2B_CMDLIST_A2B_BAD_NODE,
+    ADI_A2B_CMDLIST_A2B_NOT_LAST_NODE,
     ADI_A2B_CMDLIST_END
 } ADI_A2B_CMDLIST_RESULT;
+
+/*!****************************************************************
+ * @brief Partial discovery TDM slot remapping strategies.
+ ******************************************************************/
+typedef enum _ADI_A2B_CMDLIST_SLOT_REMAP {
+    ADI_A2B_CMDLIST_SLOT_REMAP_UNKNOWN = 0,
+    ADI_A2B_CMDLIST_SLOT_REMAP_FAST,
+    ADI_A2B_CMDLIST_SLOT_REMAP_FULL
+} ADI_A2B_CMDLIST_SLOT_REMAP;
+
+/*!****************************************************************
+ * @brief ioctl commands
+ *
+ * ADI_A2B_CMDLIST_IOCTL_DISABLE_CLOCKS
+ *   Set param to 1 to disable audio clocks, 0 to reenable (default)
+ *
+ * ADI_A2B_CMDLIST_IOCTL_ENABLE_SNIFFING
+ *   Set param to 1 to force enable sniffing, 0 to return to command
+ *   list configuration (default)
+ *
+ * ADI_A2B_CMDLIST_IOCTL_ABORT_ON_ERROR
+ *   Set param to 1 to to abort node configuration on error during
+ *   partial discovery, 0 to ignore configuration errors (default).
+ *
+ * To set IOCTLs requiring boolean or integer values, cast the value to
+ * a void *, i.e. (void *)1 or (void *)0
+ ******************************************************************/
+typedef enum _ADI_A2B_CMDLIST_IOCTL {
+    ADI_A2B_CMDLIST_IOCTL_UNKNOWN = 0,
+    ADI_A2B_CMDLIST_IOCTL_DISABLE_CLOCKS,
+    ADI_A2B_CMDLIST_IOCTL_ENABLE_SNIFFING,
+    ADI_A2B_CMDLIST_IOCTL_ABORT_ON_ERROR
+} ADI_A2B_CMDLIST_IOCTL;
+
+/*!****************************************************************
+ * @brief Events
+ *
+ * ADI_A2B_CMDLIST_EVENT_NODE_PRE_INIT
+ *   Sent immediately following a node discovery before any
+ *   SigmaStudio configuration is attempted
+ *
+ * ADI_A2B_CMDLIST_EVENT_NODE_INIT
+ *   Called after successful node discovery and configuration.
+ *   This event supplies a pointer to the node's
+ *   ADI_A2B_CMDLIST_NODE_INFO as a parameter.
+ *
+ * @sa ADI_A2B_CMDLIST_EVENT_HANDLER
+ ******************************************************************/
+typedef enum _ADI_A2B_CMDLIST_EVENT {
+    ADI_A2B_CMDLIST_EVENT_UNKNOWN = 0,
+    ADI_A2B_CMDLIST_EVENT_NODE_PRE_INIT,
+    ADI_A2B_CMDLIST_EVENT_NODE_INIT,
+} ADI_A2B_CMDLIST_EVENT;
 
 /*!****************************************************************
  * @brief Opaque A2B command list object handle.
@@ -220,6 +277,60 @@ typedef void (ADI_A2B_CMDLIST_FREE_BUFFER) (
 );
 
 /*!****************************************************************
+ * @brief Log function.
+ *
+ * This user defined application logging function.
+ *
+ * @param [in] newLine Data is part of a new line
+ * @param [in] usr     User supplied data pointer
+ * @param [in] fmt     printf compatible format string.  Will be
+ *                     NULL for the last message as an indication to
+ *                     flush any cached lines.
+ * @param [in] va      variable argument list suitable for vfprintf
+ *
+ * @return Nothing.
+ ******************************************************************/
+typedef void (ADI_A2B_CMDLIST_LOG) (
+    bool newLine, void *usr, const char *fmt, va_list va
+);
+
+/*!****************************************************************
+ * @brief Error Log function.
+ *
+ * This user defined application error logging function.
+ *
+ * @param [in] newLine Data is part of a new line
+ * @param [in] usr     User supplied data pointer
+ * @param [in] error   Descriptive error string
+ *
+ * @return Nothing.
+ ******************************************************************/
+typedef void (ADI_A2B_CMDLIST_ERROR_LOG) (
+    bool newLine, void *usr, const char *error
+);
+
+/*!****************************************************************
+ * @brief Discovery event handler function.
+ *
+ * This user defined event handling function.
+ *
+ * @param [in] list    Command list instance
+ * @param [in] event   Event
+ * @param [in] node    Node associated with the event.  -1 is the
+ *                     main node. 0 is the first sub node.
+ * @param [in] param   Event specific parameter.  May be NULL.
+ * @param [in] usr     User supplied data pointer
+ *
+ * @return Nothing.
+ *
+ * @sa ADI_A2B_CMDLIST_EVENT
+ ******************************************************************/
+typedef void (ADI_A2B_CMDLIST_EVENT_HANDLER) (
+    ADI_A2B_CMDLIST *list, ADI_A2B_CMDLIST_EVENT event,
+    int8_t node, void *param, void *usr
+);
+
+/*!****************************************************************
  * @brief Command list configuration structure
  *
  * This configuration structure is only used during the call to
@@ -246,6 +357,12 @@ typedef struct _ADI_A2B_CMDLIST_CFG {
     ADI_A2B_CMDLIST_GET_BUFFER *getBuffer;
     /** Pointer to an application buffer free function */
     ADI_A2B_CMDLIST_FREE_BUFFER *freeBuffer;
+    /** Pointer to an application logging function */
+    ADI_A2B_CMDLIST_LOG *log;
+    /** Pointer to an application error logging function */
+    ADI_A2B_CMDLIST_ERROR_LOG *errLog;
+    /** Pointer to an application event handling function */
+    ADI_A2B_CMDLIST_EVENT_HANDLER *event;
     /** Pointer to an application TWI device handle */
     void *handle;
     /** User data pointer passed back to callback functions */
@@ -273,6 +390,14 @@ typedef struct _ADI_A2B_CMDLIST_SCAN_INFO {
     uint8_t I2SGCFG;      /**< Master I2SGCFG register value */
     bool I2SCFG_valid;    /**< True if Master I2SCFG was found */
     uint8_t I2SCFG;       /**< Master I2SCFG register value */
+    bool DNSLOTS_valid;   /**< True if Master DNSLOTS was found */
+    uint8_t DNSLOTS;      /**< Master DNSLOTS register value */
+    bool UPSLOTS_valid;   /**< True if Master UPSLOTS was found */
+    uint8_t UPSLOTS;      /**< Master UPSLOTS register value */
+    bool SLOTFMT_valid;   /**< True if Master SLOTFMT was found */
+    uint8_t SLOTFMT;      /**< Master SLOTFMT register value */
+    bool DATCTL_valid;    /**< True if Master DATCTL was found */
+    uint8_t DATCTL;       /**< Master DATCTL register value */
 } ADI_A2B_CMDLIST_SCAN_INFO;
 
 /*!****************************************************************
@@ -293,6 +418,30 @@ typedef struct _ADI_A2B_CMDLIST_OVERRIDE_INFO {
     bool I2SCFG_override;
     /** Master I2SCFG override value */
     uint8_t I2SCFG;
+    /** True if Master DNSLOTS register should be overridden */
+    bool DNSLOTS_override;
+    /** Master DNSLOTS override value */
+    uint8_t DNSLOTS;
+    /** True if Master UPSLOTS register should be overridden */
+    bool UPSLOTS_override;
+    /** Master UPSLOTS override value */
+    uint8_t UPSLOTS;
+    /** True if Master SLOTFMT register should be overridden */
+    bool SLOTFMT_override;
+    /** Master SLOTFMT override value */
+    uint8_t SLOTFMT;
+    /** True if Master DATCTL register should be overridden */
+    bool DATCTL_override;
+    /** Master DATCTL override value */
+    uint8_t DATCTL;
+    /** True if Slave LDNSLOTS register should be overridden */
+    bool LDNSLOTS_override;
+    /** Slave LDNSLOTS override value */
+    uint8_t LDNSLOTS;
+    /** True if Slave LUPSLOTS register should be overridden */
+    bool LUPSLOTS_override;
+    /** Slave LUPSLOTS override value */
+    uint8_t LUPSLOTS;
 } ADI_A2B_CMDLIST_OVERRIDE_INFO;
 
 /*!****************************************************************
@@ -309,6 +458,8 @@ typedef struct _ADI_A2B_CMDLIST_EXECUTE_INFO {
     bool faultDetected;
     /** Fault Node */
     int8_t faultNode;
+    /** Fault type */
+    uint8_t faultType;
     /** Number of command list lines processed */
     uint32_t linesProcessed;
 } ADI_A2B_CMDLIST_EXECUTE_INFO;
@@ -413,6 +564,52 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_execute(
 );
 
 /*!****************************************************************
+ * @brief Command list partial execute.
+ *
+ * This function intelligently executes an A2B partial discovery
+ * using an A2B command list.
+ *
+ * This function is not thread safe.
+ *
+ * @param [in]  list    Pointer to a ADI_A2B_CMDLIST handle.
+ * @param [in]  node    Last good node from which to start the partial
+ *                      discovery.  The main-node is index -1.  The
+ *                      First sub-node is index zero.
+ *
+ * @return Returns ADI_A2B_CMDLIST_SUCCESS if successful, otherwise
+ *         an error.
+ *
+ * @sa ADI_A2B_CMDLIST_EXECUTE_INFO
+ ******************************************************************/
+ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_partial_execute(
+    ADI_A2B_CMDLIST *list, int8_t node, ADI_A2B_CMDLIST_EXECUTE_INFO *results
+);
+
+/*!****************************************************************
+ * @brief Remap and correct audio slots during partial discovery.
+ *
+ * This function adjusts upstream transceiver UPSLOTS and main node
+ * TDM audio slots during partial discovery.
+ *
+ * This function is not thread safe.
+ *
+ * @param [in]  list    Pointer to a ADI_A2B_CMDLIST handle.
+ * @param [in]  subNode Last good node remaining on the network.  First
+ *                      sub-node is index zero.  Must not be the last
+ *                      node on the nework.
+ * @param [in]  type    Type of TDM slot remapping.
+ * @param [in]  apply   Apply or remove TDM slot remapping.
+ *
+ * @return Returns ADI_A2B_CMDLIST_SUCCESS if successful, otherwise
+ *         an error.
+ *
+ * @sa ADI_A2B_CMDLIST_EXECUTE_INFO
+ ******************************************************************/
+ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_remap_slots(
+    ADI_A2B_CMDLIST *list, uint8_t subNode,
+    ADI_A2B_CMDLIST_SLOT_REMAP type, bool apply);
+
+/*!****************************************************************
  * @brief Command list play.
  *
  * This function plays a command list.  The list is played exactly
@@ -482,7 +679,7 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_scan(
  * This function is not thread safe.
  *
  * @param [in]  list      Pointer to a ADI_A2B_CMDLIST handle.
- * @param [in]  node      Node index.  First node is index zero.
+ * @param [in]  subNode   Node index.  First node is index zero.
  * @param [out] nodeInfo  Pointer to a ADI_A2B_CMDLIST_NODE_INFO
  *                        structure.
  *
@@ -492,7 +689,7 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_scan(
  * @sa ADI_A2B_CMDLIST_NODE_INFO
  ******************************************************************/
 ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_get_node_info(
-    ADI_A2B_CMDLIST *list, uint8_t node, ADI_A2B_CMDLIST_NODE_INFO *nodeInfo
+    ADI_A2B_CMDLIST *list, uint8_t subNode, ADI_A2B_CMDLIST_NODE_INFO *nodeInfo
 );
 
 /*!****************************************************************
@@ -515,25 +712,29 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_get_node_info(
  * are thread safe.
  *
  * @param [in]  list        Pointer to a ADI_A2B_CMDLIST handle.
- * @param [in]  node        Node index.  First node is index zero.
+ * @param [in]  node        Node index.  The main node is index -1.  The
+ *                          first sub-node is index zero.
  * @param [in]  peripheral  Operation is a node peripheral access otherwise
- *                          a slave AD24xx register access
+ *                          a slave AD24xx register access.  Ignored for
+ *                          main node accesses.
  * @param [in]  broadcast   Operation is a broadcast operation ('peripheral'
- *                          must be false if this is set)
+ *                          must be false if this is set).  Ignored for
+ *                          main node accesses.
  * @param [in]  address     Slave peripheral TWI address used when
- *                          'peripheral' is true.
+ *                          'peripheral' is true.  Ignored for main node
+ *                          accesses.
  * @param [in]  out         Data out buffer pointer
  * @param [in]  outLen      Data out buffer length
  * @param [out] io          Data IO buffer pointer
  * @param [in]  ioLen       Data IO buffer length
- * @param [in]  ioDir       Data IO type.  Input when true.
+ * @param [in]  ioDir       Data IO type.  Input (read) when true.
  *
  * @return Returns ADI_A2B_CMDLIST_SUCCESS if successful, otherwise
  *         an error.
  *
  ******************************************************************/
 ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_node_twi_transfer(
-    ADI_A2B_CMDLIST *list, uint8_t node,
+    ADI_A2B_CMDLIST *list, int8_t node,
     bool peripheral, bool broadcast, uint8_t address,
     void *out, uint16_t outLen, void *io, uint16_t ioLen, bool ioDir
 );
@@ -555,6 +756,51 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_node_twi_transfer(
 ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_delay(
     ADI_A2B_CMDLIST *list, uint32_t ms
 );
+
+/*!****************************************************************
+ * @brief Returns a result string
+ *
+ * This function returns a result string
+ *
+ * This function is thread safe.
+ *
+ * @param [in]  result    Result to convert
+ *
+ * @return Returns a result string or "Unknown" if not valid.
+ *
+ ******************************************************************/
+const char *adi_a2b_cmdlist_result_str(ADI_A2B_CMDLIST_RESULT result);
+
+/*!****************************************************************
+ * @brief Tweak various node discovery behaviors
+ *
+ * This function is not thread safe.
+ *
+ * @param [in]  list        Pointer to a ADI_A2B_CMDLIST handle.
+ * @param [in]  node        Node index.  The main node is index -1.  The
+ *                          first sub-node is index zero.
+ * @param [in]  ioctl       Operation
+ * @param [in]  param       Operation parameter
+ *
+ * @return Returns ADI_A2B_CMDLIST_SUCCESS if successful, otherwise
+ *         an error.
+ *
+ * @sa ADI_A2B_CMDLIST_IOCTL
+ ******************************************************************/
+ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_ioctl(ADI_A2B_CMDLIST *list, int8_t node,
+    ADI_A2B_CMDLIST_IOCTL ioctl, void *param);
+
+/*!****************************************************************
+ * @brief Check to see if full bus was discovered
+ *
+ * This function returns a true if all nodes were discovered
+ *
+ * @param [in]  list    Pointer to a ADI_A2B_CMDLIST handle.
+ *
+ * @return Returns true if full bus discovered (node == scanned)
+ *
+ ******************************************************************/
+bool adi_a2b_cmdlist_full_bus_discovered(ADI_A2B_CMDLIST *list);
 
 #ifdef __cplusplus
 } // extern "C"

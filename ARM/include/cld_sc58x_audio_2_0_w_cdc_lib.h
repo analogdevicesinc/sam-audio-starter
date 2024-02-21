@@ -101,11 +101,12 @@ typedef enum
  */
 typedef enum
 {
-    CLD_USB_CABLE_CONNECTED = 0,    /*!< USB Cable Connected. */
-    CLD_USB_CABLE_DISCONNECTED,     /*!< USB Cable Disconnected. */
-    CLD_USB_ENUMERATED_CONFIGURED,  /*!< USB Device configured (USB Set Configuration command received enabling the device). */
-    CLD_USB_UN_CONFIGURED,          /*!< USB Device unconfigured (USB Set Configuration command received disabling the device). */
-    CLD_USB_BUS_RESET,              /*!< USB Bus Reset. */
+    CLD_USB_CABLE_CONNECTED = 0,      /*!< USB Cable Connected. */
+    CLD_USB_CABLE_DISCONNECTED,       /*!< USB Cable Disconnected. */
+    CLD_USB_ENUMERATED_CONFIGURED_FS, /*!< USB Device configured (USB Set Configuration command received enabling the device) at Full Speed. */
+    CLD_USB_ENUMERATED_CONFIGURED_HS, /*!< USB Device configured (USB Set Configuration command received enabling the device) at High Speed. */
+    CLD_USB_UN_CONFIGURED,            /*!< USB Device unconfigured (USB Set Configuration command received disabling the device). */
+    CLD_USB_BUS_RESET,                /*!< USB Bus Reset. */
 } CLD_USB_Event;
 
 /**

@@ -27,10 +27,6 @@
 
 #include "context.h"
 
-/* FIXME with "shell_priv.h" */
-extern void shellh_show_help( const char *cmd, const char *helptext );
-#define SHELL_SHOW_HELP( cmd )  shellh_show_help( #cmd, shell_help_##cmd )
-
 #ifdef printf
 #undef printf
 #endif
@@ -41,6 +37,28 @@ extern void shellh_show_help( const char *cmd, const char *helptext );
  * Main application context
  **********************************************************************/
 static APP_CONTEXT *context = &mainAppContext;
+
+/***********************************************************************
+ * Misc helper functions
+ **********************************************************************/
+enum {
+    INVALID_FS = -1,
+    SPIFFS_FS = 0
+};
+
+static int fsVolOK(SHELL_CONTEXT *ctx, APP_CONTEXT *context, char *fs)
+{
+    if (strcmp(fs, SPIFFS_VOL_NAME) == 0) {
+        if (context->spiffsHandle) {
+            return SPIFFS_FS;
+        } else {
+            printf("SPIFFS has not been configured for this project!\n");
+            return INVALID_FS;
+        }
+    }
+    printf("Invalid drive name specified.\n");
+    return INVALID_FS;
+}
 
 /***********************************************************************
  * XMODEM helper functions
@@ -367,13 +385,13 @@ void shell_syslog(SHELL_CONTEXT *ctx, int argc, char **argv)
 #include "fs_devman.h"
 
 const char shell_help_drive[] = "<device> <action>\n"
-  "  device - The device in the file system to take action on\n"
-  "  action - The action to take on the drive\n"
+  "  device - The device to take action on\n"
+  "  action - The action to take on the device\n"
   " Valid actions\n"
-  "  default - Sets the requested drive to the default in the file system\n"
+  "  default - Sets the requested device as the default file system\n"
   " No arguments\n"
-  "  Show all available drives in the file system\n";
-const char shell_help_summary_drive[] = "Shows/supports information about the drives in the Fat File System.";
+  "  Show all available devices\n";
+const char shell_help_summary_drive[] = "Shows/supports filesystem device information";
 
 void shell_drive(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
@@ -382,19 +400,19 @@ void shell_drive(SHELL_CONTEXT *ctx, int argc, char **argv)
     char *dirName;
     unsigned int dirIdx;
     const char *pcDeviceDefault;
-    
+
     /* Local Inits */
     pcDeviceDefault = NULL;
-    
+
     if((argc == 2) || (argc > 3))
     {
        printf("Invalid arguments. Type help [<command>] for usage.\n");
        return;
     }
-    
+
     /* Get the default device */
     fs_devman_get_default(&pcDeviceDefault);
-    
+
     if(argc == 1)
     {
         printf("Available devices are:\n");
@@ -402,14 +420,8 @@ void shell_drive(SHELL_CONTEXT *ctx, int argc, char **argv)
         {
             if(fs_devman_get_deviceName(dirIdx, (const char **)&dirName) == FS_DEVMAN_OK)
             {
-                if(pcDeviceDefault == dirName)
-                {
-                    printf("(Default) %s\n", dirName);
-                }
-                else
-                {
-                    printf("          %s\n", dirName);
-                }
+                printf("%s %s\n",
+                    dirName, (pcDeviceDefault == dirName) ? "(Default)" : "");
             }
         }
     }
@@ -418,14 +430,14 @@ void shell_drive(SHELL_CONTEXT *ctx, int argc, char **argv)
         /* Get the device and action and verify the arguments */
         device = argv[1];
         action = argv[2];
-        
+
         if(fs_devman_is_device_valid(device) == true)
         {
             if(strcmp(action, "default") == 0)
             {
                 if(fs_devman_set_default(device) == FS_DEVMAN_OK)
                 {
-                   printf("Succesfully set %s to default drive!\n", device); 
+                   printf("Succesfully set %s to default drive!\n", device);
                 }
                 else
                 {
@@ -501,41 +513,40 @@ void shell_ls(SHELL_CONTEXT *ctx, int argc, char **argv)
     if (argc == 1) {
         result = fs_devman_get_default((const char **)&device);
         if (result != FS_DEVMAN_OK) {
-            device = "wo:";
+            device = SPIFFS_VOL_NAME;
         }
     } else {
         device = argv[1];
     }
 
-    shell_ls_helper(ctx, device, 0, &phasdirs );
+    shell_ls_helper( ctx, device, 0, &phasdirs );
 }
 
 /***********************************************************************
  * CMD: format
  **********************************************************************/
-const char shell_help_format[] = "[all]\n";
+const char shell_help_format[] = "["SPIFFS_VOL_NAME"]\n";
 const char shell_help_summary_format[] = "Formats the internal flash filesystem";
 
-#include "romfs.h"
+#include "spiffs_fs.h"
 
 void shell_format(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
-    int all;
+    int fs = INVALID_FS;
 
-    all = 0;
-    if ((argc > 1) && (strcmp(argv[1], "all") == 0)) {
-        all = 1;
+    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
+    if (fs == INVALID_FS) {
+        return;
     }
 
     printf("Be patient, this may take a while.\n");
-    printf("Formatting...\n");
-    if(romfs_fsck(1, NULL) == FS_OK) {
-        romfs_format(all);
+    printf("Formatting %s...\n", argv[1]);
+
+    if (fs == SPIFFS_FS) {
+        spiffs_format(context->spiffsHandle);
     }
-    else {
-        romfs_format(true); 
-    }
-    printf("Done.\n");
+
+    printf("Done. Please reset the board to mount the filesystem.\n");
 }
 
 /***********************************************************************
@@ -551,7 +562,7 @@ const char shell_help_discover[] = "<a2b.xml> <verbose> <i2c_port> <i2c_addr> <r
   "  verbose  - Print out results to 0:none, 1:stdout, 2:syslog\n"
   "             default: 1\n"
   "  i2c_port - Set the AD242x transceiver I2C port.\n"
-  "             default: TWI0\n"
+  "             default: 0 (TWI0)\n"
   "  i2c_addr - Set the AD2425 transceiver I2C address\n"
   "             default: 0x68\n"
   "  reset    - Reset the A2B transceiver(s) 'y':yes, 'n':no\n"
@@ -644,6 +655,7 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
         .twiRead = shell_discover_twi_read,
         .twiWrite = shell_discover_twi_write,
         .twiWriteRead = shell_discover_twi_write_read,
+        .twiWriteWrite = shell_discover_twi_write_write,
         .delay = shell_discover_delay,
         .getTime = shell_discover_get_time,
         .getBuffer = shell_discover_get_buffer,
@@ -799,27 +811,32 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
 /***********************************************************************
  * CMD: df
  **********************************************************************/
-const char shell_help_df[] = "\n";
+const char shell_help_df[] = "["SPIFFS_VOL_NAME"]\n";
 const char shell_help_summary_df[] = "Shows internal filesystem disk full status";
+
+#include "spiffs.h"
 
 void shell_df( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-   u32 size, used;
-   u32 err;
-   
-   if (romfs_fsck(1, NULL) == FS_OK) {
-       printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
-       err = romfs_full(&size, &used);
-       if (err > 0) {
-           printf("%-10s %10u %10u %10u %5u\n", "wo:",
-               (unsigned)size, (unsigned)used, (unsigned)(size - used),
-               (unsigned)((100 * used) / size));
-       }
-   }
-   else
-   {
-       printf("Cannot verify disk full status. Please check disk status by running fsck first.\n");
-   }
+    u32_t size, used;
+    s32_t serr;
+    int fs = INVALID_FS;
+
+    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
+    if (fs == INVALID_FS) {
+        return;
+    }
+
+    printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
+
+    if (fs == SPIFFS_FS) {
+        serr = SPIFFS_info(context->spiffsHandle, &size, &used);
+        if (serr == SPIFFS_OK) {
+          printf("%-10s %10u %10u %10u %5u\n", SPIFFS_VOL_NAME,
+            (unsigned)size, (unsigned)used, (unsigned)(size - used),
+            (unsigned)((100 * used) / size));
+        }
+    }
 }
 
 /***********************************************************************
@@ -1170,22 +1187,31 @@ void shell_usb( SHELL_CONTEXT *ctx, int argc, char **argv )
 /***********************************************************************
  * CMD: fsck
  **********************************************************************/
-const char shell_help_fsck[] = "\n";
+const char shell_help_fsck[] = "["SPIFFS_VOL_NAME"]\n";
 const char shell_help_summary_fsck[] = "Check the internal filesystem";
+
+#include "spiffs.h"
 
 void shell_fsck(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
-   int result;
-   int repaired;
+    int fs = INVALID_FS;
+    s32_t ok;
 
-   result = romfs_fsck(1, &repaired);
+    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
+    if (fs == INVALID_FS) {
+        return;
+    }
 
-   if (result == FS_OK) {
-      printf("Filesystem OK\n");
-   } else {
-      printf("Filesystem corrupt: %s Repaired\n", repaired ? "" : "Not");
-      printf("You can attempt to repair Filesystem by running the format command.\n");
-   }
+    printf("Be patient, this may take a while.\n");
+
+    if (fs == SPIFFS_FS) {
+        ok = SPIFFS_check(context->spiffsHandle);
+        if (ok == SPIFFS_OK) {
+            printf(SPIFFS_VOL_NAME " OK\n");
+        } else {
+            printf(SPIFFS_VOL_NAME " CORRUPT: %d\n", (int)ok);
+        }
+    }
 }
 
 /***********************************************************************
@@ -1215,8 +1241,8 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
            flashBaseAddr = APP_OFFSET;
            flashSize = APP_SIZE;
         } else if ((argc == 2) && (strcmp(argv[1], "fs") == 0)) {
-           flashBaseAddr = FS_OFFSET;
-           flashSize = FS_SIZE;
+           flashBaseAddr = SPIFFS_OFFSET;
+           flashSize = SPIFFS_SIZE;
            checkFs = true;
         }  else {
            printf( "Usage: %s %s", argv[0], shell_help_update);
@@ -1259,16 +1285,6 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
        printf( "XMODEM Error: %ld\n", size);
     } else {
        printf("Received %ld bytes.\n", size);
-#if 0
-       if (size > 0) {
-          printf("Erasing remaining sectors...\n");
-          state.addr = ((state.addr / state.eraseBlockSize) + 1) * state.eraseBlockSize;
-          while (state.addr < state.maxAddr) {
-            flash_erase(state.flash, state.addr, state.eraseBlockSize);
-            state.addr += state.eraseBlockSize;
-          }
-       }
-#endif
     }
 
     if (checkFs) {
@@ -1284,6 +1300,7 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
 const char shell_help_meminfo[] = "\n";
 const char shell_help_summary_meminfo[] = "Displays UMM_MALLOC heap statistics";
 
+#include "sae.h"
 #include "umm_malloc_cfg.h"
 #include "umm_malloc_heaps.h"
 const static char *heapNames[] = UMM_HEAP_NAMES;
@@ -1291,6 +1308,8 @@ const static char *heapNames[] = UMM_HEAP_NAMES;
 void shell_meminfo(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     UMM_HEAP_INFO ummHeapInfo;
+    SAE_HEAP_INFO saeHeapInfo;
+    SAE_RESULT saeOk;
     int i;
     int ok;
 
@@ -1316,6 +1335,21 @@ void shell_meminfo(SHELL_CONTEXT *ctx, int argc, char **argv )
         }
         printf("  Heap Integrity: %s\n", ok ? "OK" : "Corrupt");
     }
+
+    saeOk = sae_heapInfo(context->saeContext, &saeHeapInfo);
+    if (saeOk) {
+        printf("SAE Heap Info:\n");
+        printf("   Blocks: Total  %8u, Allocated %8u, Free %8u\n",
+            saeHeapInfo.totalBlocks,
+            saeHeapInfo.allocBlocks,
+            saeHeapInfo.freeBlocks
+        );
+        printf("    Bytes: Contig %8u, Allocated %8u, Free %8u\n",
+            saeHeapInfo.maxContigFreeSize,
+            saeHeapInfo.allocSize,
+            saeHeapInfo.freeSize
+        );
+    }
 }
 
 /***********************************************************************
@@ -1327,7 +1361,7 @@ const char shell_help_cmdlist[] = "<cmdlist.xml> <verbose> <i2c_port>\n"
   "  verbose  - Print out results to 0:none, 1:stdout, 2:syslog\n"
   "             default: 1\n"
   "  i2c_port - Set the AD242x transceiver I2C port.\n"
-  "             default: TWI0\n";
+  "             default: 0 (TWI0)\n";
 const char shell_help_summary_cmdlist[] = "Plays a SigmaStudio XML command list";
 
 void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
@@ -1457,6 +1491,107 @@ void shell_test(SHELL_CONTEXT *ctx, int argc, char **argv )
 }
 
 /***********************************************************************
+ * CMD: sdtest
+ **********************************************************************/
+const char shell_help_sdtest[] =
+    "[ms]\n"
+    "  ms - Number of milliseconds to read/write (default 5000)\n";
+
+const char shell_help_summary_sdtest[] =
+    "Test the write/read speed of the SD card";
+
+#include "wav_file_cfg.h"
+
+#define SDTEST_MS   (5000)
+#define IO_BUF_SIZE (WAVE_FILE_BUF_SIZE)
+#define RWBUFSIZE   (IO_BUF_SIZE/4)
+
+void shell_sdtest(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    char *fname = "sd:jo11IEjP6i.bin";
+    char *fbuf = NULL;
+    char *vbuf = NULL;
+    FILE *f = NULL;
+    uint32_t begin, end;
+    unsigned long KBPS;
+    size_t sz, rwsz;
+    uint32_t ms;
+
+    ms = SDTEST_MS;
+    if (argc > 1) {
+        ms = atoi(argv[1]);
+    }
+
+    printf("Testing SD card read/write for %u mS...\n", (unsigned)ms);
+
+    vbuf = (char *)WAVE_FILE_CALLOC(IO_BUF_SIZE, 1);
+    fbuf = (char *)WAVE_FILE_CALLOC(RWBUFSIZE, 1);
+
+    /* Write Test */
+    f = fopen(fname, "wb");
+    if (f && vbuf && fbuf) {
+        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
+
+        memset(fbuf, 0xAA, RWBUFSIZE);
+        sz = 0;
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            rwsz = fwrite(fbuf, 1, RWBUFSIZE, f);
+            sz += rwsz;
+            end = rtosTimeMs();
+        }
+
+        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
+
+        printf("Write: %lu KB/s (%u Bytes, %u ms)\n",
+            KBPS, (unsigned)sz, (unsigned)(end - begin));
+    }
+    if (f) {
+        fclose(f); f = NULL;
+    }
+
+    /* Read Test */
+    f = fopen(fname, "rb");
+    if (f && vbuf && fbuf) {
+        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
+
+        sz = 0;
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            rwsz = fread(fbuf, 1, RWBUFSIZE, f);
+            if (rwsz == 0) {
+                fseek(f, 0, SEEK_SET);
+            }
+            sz += rwsz;
+            end = rtosTimeMs();
+        }
+
+        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
+
+        printf("Read: %lu KB/s (%u Bytes, %u ms)\n",
+            KBPS, (unsigned)sz, (unsigned)(end - begin));
+
+        fclose(f); f = NULL;
+    }
+    if (f) {
+        fclose(f); f = NULL;
+    }
+
+    if (f) {
+        fclose(f);
+    }
+    if (vbuf) {
+        WAVE_FILE_FREE(vbuf);
+    }
+    if (fbuf) {
+        WAVE_FILE_FREE(fbuf);
+    }
+
+    unlink(fname);
+}
+
+
+/***********************************************************************
  * CMD: reset
  **********************************************************************/
 #include "init.h"
@@ -1475,7 +1610,7 @@ void shell_reset(SHELL_CONTEXT *ctx, int argc, char **argv)
  * CMD: route
  **********************************************************************/
 const char shell_help_route[] =
-    "[ <idx> <src> <src offset> <dst> <dst offset> <channels> [attenuation] ]\n"
+    "[ <idx> <src> <src offset> <dst> <dst offset> <channels> [attenuation] [mix|set] ]\n"
     "  idx         - Routing index\n"
     "  src         - Source stream\n"
     "  src offset  - Source stream offset\n"
@@ -1483,6 +1618,7 @@ const char shell_help_route[] =
     "  dst offset  - Destination stream offset\n"
     "  channels    - Number of channels\n"
     "  attenuation - Source attenuation in dB (0dB default)\n"
+    "  mix         - Mix or set source into destination (set default)\n"
     " Valid Streams\n"
     "  usb        - USB Audio\n"
     "  a2b        - A2B Audio\n"
@@ -1491,7 +1627,6 @@ const char shell_help_route[] =
     "  wav        - WAV file src/sink\n"
     "  rtp        - RTP network audio tx\n"
     "  vban       - VBAN network audio tx\n"
-    "  file       - Data File src/sink\n"
     "  off        - Turn off the stream\n"
     " No arguments\n"
     "  Show routing table\n"
@@ -1549,12 +1684,6 @@ static char *stream2str(int streamID)
         case IPC_STREAM_ID_VBAN_TX:
             str = "VBAN_TX";
             break;
-        case IPC_STREAM_ID_FILE_SRC:
-            str = "FILE_SRC";
-            break;
-        case IPC_STREAM_ID_FILE_SINK:
-            str = "FILE_SINK";
-            break;
         default:
             str = "UNKNOWN";
             break;
@@ -1579,8 +1708,6 @@ int str2stream(char *stream, bool src)
         return(src ? IPC_STREAM_ID_RTP_RX : IPC_STREAM_ID_RTP_TX);
     } else if (strcmp(stream, "vban") == 0) {
         return(src ? IPC_STREAM_ID_VBAN_RX : IPC_STREAM_ID_VBAN_TX);
-    } else if (strcmp(stream, "file") == 0) {
-        return(src ? IPC_STREAM_ID_FILE_SRC : IPC_STREAM_ID_FILE_SINK);
     } else if (strcmp(stream, "off") == 0) {
         return(IPC_STREAMID_UNKNOWN);
     }
@@ -1593,20 +1720,20 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     IPC_MSG_ROUTING *routeInfo = (IPC_MSG_ROUTING *)&context->routingMsg->routes;
     ROUTE_INFO *route;
     unsigned i;
-    unsigned idx, srcOffset, sinkOffset, channels, attenuation;
+    unsigned idx, srcOffset, sinkOffset, channels, attenuation, mix;
     int srcID, sinkID;
 
     if (argc == 1) {
         printf("Audio Routing\n");
         for (i = 0; i < routeInfo->numRoutes; i++) {
             route = &routeInfo->routes[i];
-            printf(" [%02d]: %s[%u] -> %s[%u], CHANNELS: %u, %s%udB\n",
+            printf(" [%02d]: %s[%u] -> %s[%u], CHANNELS: %u, %s%udB, %s\n",
                 i,
                 stream2str(route->srcID), route->srcOffset,
                 stream2str(route->sinkID), route->sinkOffset,
                 route->channels,
                 route->attenuation == 0 ? "" : "-",
-                (unsigned)route->attenuation
+                (unsigned)route->attenuation, route->mix ? "mix" : "set"
             );
         }
         return;
@@ -1622,6 +1749,7 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
                 route->sinkOffset = 0;
                 route->channels = 0;
                 route->attenuation = 0;
+                route->mix = 0;
                 taskEXIT_CRITICAL();
             }
         }
@@ -1633,12 +1761,14 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
         printf("Invalid idx\n");
         return;
     }
+
     route = &routeInfo->routes[idx];
     srcID = route->srcID;
     srcOffset = route->srcOffset;
     sinkID = route->sinkID;
     sinkOffset = route->sinkOffset;
     channels = route->channels;
+    mix = route->mix;
 
     /* Gather the source info */
     if (argc >= 3) {
@@ -1679,6 +1809,17 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
         attenuation = 0;
     }
 
+    /* Get the 'mix' arg */
+    if (argc >= 9) {
+        if (strcmp(argv[8], "mix") == 0) {
+            mix = 1;
+        } else {
+            mix = 0;
+        }
+    } else {
+        mix = 0;
+    }
+
     /* Configure the route atomically in a critical section */
     taskENTER_CRITICAL();
     route->srcID = srcID;
@@ -1687,6 +1828,7 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     route->sinkOffset = sinkOffset;
     route->channels = channels;
     route->attenuation = attenuation;
+    route->mix = mix;
     taskEXIT_CRITICAL();
 }
 
@@ -1801,8 +1943,8 @@ void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
     channels = 2;
     if (argc >= 5) {
         channels = atoi(argv[4]);
-        if (channels > SYSTEM_MAX_CHANNELS) {
-            channels = SYSTEM_MAX_CHANNELS;
+        if (channels > WAV_MAX_CHANNELS) {
+            channels = WAV_MAX_CHANNELS;
         }
         channelsSpecified = true;
     }
@@ -1836,8 +1978,8 @@ void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
             printf("Failed to open %s\n", wf->fname);
         } else {
             if (isSrc) {
-                if (wf->waveInfo.numChannels > SYSTEM_MAX_CHANNELS) {
-                    printf("Must be less than %d channels\n", SYSTEM_MAX_CHANNELS);
+                if (wf->waveInfo.numChannels > WAV_MAX_CHANNELS) {
+                    printf("Must be less than %d channels\n", WAV_MAX_CHANNELS);
                     closeWave(wf);
                 }
                 if ((wf->waveInfo.waveFmt != WAVE_FMT_SIGNED_32BIT_LE) &&
@@ -2200,187 +2342,6 @@ void shell_vban( SHELL_CONTEXT *ctx, int argc, char **argv )
 }
 
 /***********************************************************************
- * CMD: file
- **********************************************************************/
-const char shell_help_file[] = "<src|sink> <on|off> [file] [channels] [bits]\n"
-    " (or optionally can set clock domain)\n"
-    "   file <src|sink> domain <a2b|system>\n"
-    "  ex: file sink on capture.ec3\n"
-    "      file sink domain a2b\n";
-const char shell_help_summary_file[] = "Manages Data file source/sink";
-
-#include "data_file.h"
-#include "clock_domain.h"
-
-static void file_state(SHELL_CONTEXT *ctx, char *name, int clockDomainMask, DATA_FILE *df)
-{
-    printf(
-        "%s: %s, %s, %s\n",
-        name,
-        df->enabled ? "ON" : "OFF",
-        df->fname ? df->fname : "N/A",
-        clock_domain_str(clock_domain_get(context, clockDomainMask))
-    );
-    printf("file size: %d\n", df->fileSizeBytes);
-    printf("    state: %d\n", df->state);
-}
-
-void shell_file( SHELL_CONTEXT *ctx, int argc, char **argv )
-{
-    DATA_FILE *df = NULL;
-    int channels;
-    int wordSizeBytes;
-    int bits;
-    char *fname = NULL;
-    bool on;
-    bool isSrc;
-    bool ok = true;
-    int clockDomainMask;
-    bool channelsSpecified = false;
-
-    if (argc == 1) {
-        file_state(ctx, "Src", CLOCK_DOMAIN_BITM_FILE_SRC, &context->fileSrc);
-        file_state(ctx, "Sink", CLOCK_DOMAIN_BITM_FILE_SINK, &context->fileSink);
-        return;
-    }
-
-    if (argc >= 2) {
-        if (strcmp(argv[1], "src") == 0) {
-            df = &context->fileSrc;
-            fname = "src.dat";
-            isSrc = true;
-            clockDomainMask = CLOCK_DOMAIN_BITM_FILE_SRC;
-        } else if (strcmp(argv[1], "sink") == 0) {
-            df = &context->fileSink;
-            fname = "sink.dat";
-            isSrc = false;
-            clockDomainMask = CLOCK_DOMAIN_BITM_FILE_SINK;
-        } else {
-            ok = false;
-        }
-    } else {
-        ok = false;
-    }
-    if (!ok) {
-        printf("Invalid src/sink\n");
-        return;
-    }
-
-    if (argc >= 3) {
-        if (strcmp(argv[2], "on") == 0) {
-            if (df->enabled) {
-                printf("Already on\n");
-                return;
-            }
-            on = true;
-        } else if (strcmp(argv[2], "off") == 0) {
-            if (!df->enabled) {
-                printf("Already off\n");
-                return;
-            }
-            on = false;
-        } else if (strcmp(argv[2], "domain") == 0) {
-            if (argc >= 4) {
-                if (strcmp(argv[3], "a2b") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_A2B, clockDomainMask);
-                } else if (strcmp(argv[3], "system") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, clockDomainMask);
-                } else {
-                    printf("Bad domain\n");
-                }
-                return;
-            }
-            return;
-        } else {
-            ok = false;
-        }
-    } else {
-        ok = false;
-    }
-    if (!ok) {
-        printf("Invalid on/off/domain\n");
-        return;
-    }
-
-    if (argc >= 4) {
-        fname = argv[3];
-    } else {
-        if (df->fname) {
-            fname = NULL;
-        }
-    }
-
-    channels = 1;
-    if (argc >= 5) {
-        channels = atoi(argv[4]);
-        if (channels > SYSTEM_MAX_CHANNELS) {
-            channels = SYSTEM_MAX_CHANNELS;
-        }
-        channelsSpecified = true;
-    }
-    /* TODO: how to support 24 bit slot size? */
-    wordSizeBytes = sizeof(int16_t);
-    if (argc >= 6) {
-        bits = atoi(argv[5]);
-        if (bits == 32) {
-            wordSizeBytes = 4;
-        }
-    }
-
-    xSemaphoreTake(df->lock, portMAX_DELAY);
-    if (on) {
-        /* TODO: need to adjust if wanting to support multiple slots */
-        if (!isSrc) {
-            df->channels = 1;
-            df->sampleRate = SYSTEM_SAMPLE_RATE;
-            df->wordSizeBytes = 1;
-            df->frameSizeBytes = SYSTEM_BLOCK_SIZE * df->wordSizeBytes;
-            df->state = FILE_STREAM_START;
-        }
-        if (fname) {
-            if (df->fname) {
-                SHELL_FREE(df->fname); df->fname = NULL;
-            }
-            df->fname = SHELL_MALLOC(strlen(fname) + 1);
-            strcpy(df->fname, fname);
-        }
-        df->isSrc = isSrc;
-        ok = openData(df);
-        if (!ok) {
-            printf("Failed to open %s\n", df->fname);
-        } else {
-            syslog_printf("Data File opened: %s\n", df->fname);
-            df->state = FILE_STREAM_START;
-            if (isSrc) {
-                /* TODO: properly implement multiple a2b slots if desired */
-                if (df->channels > SYSTEM_MAX_CHANNELS) {
-                    printf("Must be less than %d channels\n", SYSTEM_MAX_CHANNELS);
-                    closeData(df);
-                }
-                if (df->sampleRate != SYSTEM_SAMPLE_RATE) {
-                    syslog_printf("Data File sample rate mismatch: %d\n",
-                        df->sampleRate);
-                    if (channelsSpecified) {
-                        overrideData(df, channels);
-                        syslog_printf("Data File channel override: %d\n",
-                            df->channels);
-                    }
-                }
-            }
-        }
-    } else {
-        /* the cmd "off" forces the file to close */
-        df->state = FILE_STREAM_STOP;
-//        df->fileSizeBytes = 0;
-        closeData(df);
-        syslog_printf("Data File closed: %s\n", df->fname);
-
-    }
-
-    xSemaphoreGive(df->lock);
-}
-
-/***********************************************************************
  * CMD: cmp (file compare)
  **********************************************************************/
 const char shell_help_cmp[] = "<file1> <file2>\n";
@@ -2468,7 +2429,7 @@ const char shell_help_a2b[] = "[cmd]\n"
 
 const char shell_help_summary_a2b[] = "Set A2B Parameters";
 
-void shell_a2b(SHELL_CONTEXT *ctx, int argc, char **argv )
+void shell_a2b( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     A2B_BUS_MODE mode;
     bool ok;
@@ -2501,3 +2462,66 @@ void shell_a2b(SHELL_CONTEXT *ctx, int argc, char **argv )
     }
 
 }
+
+/***********************************************************************
+ * CMD: edit
+ **********************************************************************/
+const char shell_help_edit[] = "<filename>\n";
+const char shell_help_summary_edit[] = "Edit a text file";
+
+#include "util.h"
+
+int kilo_main(int argc, char **argv, void *usr);
+
+ssize_t shell_edit_write(void *usr, const void *buf, size_t len)
+{
+    SHELL_CONTEXT *ctx = (SHELL_CONTEXT *)usr;
+    term_putstr(&ctx->t, buf, len);
+    return(len);
+}
+
+ssize_t shell_edit_read(void *usr, const void *buf, size_t len)
+{
+    SHELL_CONTEXT *ctx = (SHELL_CONTEXT *)usr;
+    int ch = ctx->t.term_in(100000, ctx->t.usr);
+    if (ch == -1) {
+        return(0);
+    }
+    ((char *)buf)[0] = ch;
+    return(1);
+}
+
+void shell_edit(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    int ok;
+    if (argc != 2) {
+        printf("Usage: %s <filename>\n", argv[0]);
+        return;
+    }
+    ok = kilo_main(argc, argv, ctx);
+    if (ok < 0) {
+        printf("Error editing file\n");
+    }
+}
+
+/***********************************************************************
+ * CMD: delay
+ **********************************************************************/
+const char shell_help_delay[] = "<ms>\n";
+const char shell_help_summary_delay[] = "Delay";
+
+#include "util.h"
+
+void shell_delay(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    unsigned delaymS = 0;
+
+    if (argc > 1) {
+        delaymS = strtoul(argv[1], NULL, 0);
+    }
+
+    if (delaymS > 0) {
+        delay(delaymS);
+    }
+}
+

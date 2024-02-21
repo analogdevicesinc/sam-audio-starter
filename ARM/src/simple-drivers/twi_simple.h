@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -18,8 +18,8 @@
  *     - Blocking transfers
  *
  * @file      twi_simple.h
- * @version   1.0.0
- * @copyright 2018 Analog Devices, Inc.  All rights reserved.
+ * @version   1.0.1
+ * @copyright 2023 Analog Devices, Inc.  All rights reserved.
  *
 */
 
@@ -50,6 +50,11 @@ typedef enum TWI_SIMPLE_PORT {
     TWI0    = (0),      /**< TWI port 0 */
     TWI1    = (1),      /**< TWI port 1 */
     TWI2    = (2),      /**< TWI port 2 */
+#if defined(__ADSPSC594_FAMILY__) || defined(__ADSPSC598_FAMILY__)
+    TWI3    = (3),      /**< TWI port 3 */
+    TWI4    = (4),      /**< TWI port 4 */
+    TWI5    = (5),      /**< TWI port 5 */
+#endif
     TWI_END             /**< End TWI ports */
 } TWI_SIMPLE_PORT;
 

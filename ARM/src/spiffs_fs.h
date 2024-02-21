@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -9,14 +9,16 @@
  * software may not be used except as expressly authorized under the license.
  */
 
-#ifndef _fs_dev_romfs_h
-#define _fs_dev_romfs_h
+#ifndef _spiffs_fs_h
+#define _spiffs_fs_h
 
-#include "fs_devman_cfg.h"
-#include "fs_devman.h"
+#include "spiffs.h"
+#include "flash.h"
 
-#ifdef FS_DEVMAN_ENABLE_ROMFS
-FS_DEVMAN_DEVICE *fs_dev_romfs_device(void);
-#endif
+s32_t spiffs_mount(spiffs *fs, FLASH_INFO *f);
+s32_t spiffs_format(spiffs *fs);
+
+void spiffs_lock(spiffs *fs);
+void spiffs_unlock(spiffs *fs);
 
 #endif

@@ -12,6 +12,15 @@
 #ifndef _ADI_A2B_CMDLIST_CFG_H
 #define _ADI_A2B_CMDLIST_CFG_H
 
-#define ADI_A2B_CMDLIST_MAX_LISTS  2
+/*
+ * Uncomment and modify the tunable parameters below as required
+ */
+
+#define ADI_A2B_CMDLIST_MAX_LISTS 2
+//#define ADI_A2B_CMDLIST_MAX_NODES 16
+//#define ADI_A2B_CMDLIST_MEMSET    memset
+//#define ADI_A2B_CMDLIST_MEMCPY    memcpy
+//#define ADI_A2B_CMDLIST_MEMCPY    memcpy
+//#define ADI_A2B_CMDLIST_FORCE_FULL_LINE_DIAGNOSTICS
 
 #endif

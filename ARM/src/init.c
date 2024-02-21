@@ -40,6 +40,7 @@
 
 /* Simple service includes */
 #include "syslog.h"
+#include "a2b_to_sport_cfg.h"
 
 /* Application includes */
 #include "context.h"
@@ -147,10 +148,10 @@ void enable_sport_mclk(APP_CONTEXT *context)
 /***********************************************************************
  * System Clock Initialization
  **********************************************************************/
-void system_clk_init(void)
+void system_clk_init(uint32_t *cclk)
 {
     ADI_PWR_RESULT ePwrResult;
-    uint32_t cclk,sclk,sclk0,sclk1,dclk,oclk;
+    uint32_t _cclk,sclk,sclk0,sclk1,dclk,oclk;
 
     /* Initialize ADI power service */
     ePwrResult = adi_pwr_Init(0, OSC_CLK);
@@ -160,10 +161,15 @@ void system_clk_init(void)
     ePwrResult = adi_pwr_SetClkDivideRegister(0, ADI_PWR_CLK_DIV_OSEL, OCLK_DIV);
 
     /* Query primary clocks from CGU0 for confirmation */
-    ePwrResult = adi_pwr_GetCoreFreq(0, &cclk);
+    ePwrResult = adi_pwr_GetCoreFreq(0, &_cclk);
     ePwrResult = adi_pwr_GetSystemFreq(0, &sclk, &sclk0, &sclk1);
     ePwrResult = adi_pwr_GetDDRClkFreq(0, &dclk);
     ePwrResult = adi_pwr_GetOutClkFreq(0, &oclk);
+
+    /* Store the core clock frequency */
+    if (cclk) {
+        *cclk = _cclk;
+    }
 
     /* CAN clock is derived from CDU0_CLKO4 (Pg. 4-3 of HRM)
      * Choose OCLK_0 (see oclk above)
@@ -198,7 +204,7 @@ void system_clk_init(void)
     ePwrResult = adi_pwr_SetClkDivideRegister(1, ADI_PWR_CLK_DIV_S1SEL, 1);
     ePwrResult = adi_pwr_SetClkDivideRegister(1, ADI_PWR_CLK_DIV_DSEL, 5);
 
-    ePwrResult = adi_pwr_GetCoreFreq(1, &cclk);
+    ePwrResult = adi_pwr_GetCoreFreq(1, &_cclk);
     ePwrResult = adi_pwr_GetSystemFreq(1, &sclk, &sclk0, &sclk1);
     ePwrResult = adi_pwr_GetDDRClkFreq(1, &dclk);
     ePwrResult = adi_pwr_GetOutClkFreq(1, &oclk);
@@ -470,21 +476,6 @@ void gpio_init(void)
         ADI_GPIO_PIN_6
     );
 #endif
-
-//#define USE_TWI1_AS_DEFAULT
-#if defined(USE_TWI1_AS_DEFAULT)
-    /* set TWI default to TWI0 or TWI1*/ 
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_8,
-        ADI_GPIO_DIRECTION_OUTPUT
-    );
-    /* Set = TWI1 or Clear = TWI0 */
-    result = adi_gpio_Set(
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_8
-    );
-#endif
 }
 
 /*
@@ -585,6 +576,16 @@ void gic_init(void)
 #define STD_C_HEAP_SIZE (1024 * 1024)
 #endif
 uint8_t __adi_heap_object[STD_C_HEAP_SIZE] __attribute__ ((section (".heap")));
+
+/***********************************************************************
+ * libc stack initialization
+ **********************************************************************/
+uint8_t __adi_stack_sys_object[1024] __attribute__ ((section (".stack_sys")));
+uint8_t __adi_stack_sup_object[1024] __attribute__ ((section (".stack_sup")));
+uint8_t __adi_stack_fiq_object[1024] __attribute__ ((section (".stack_fiq")));
+uint8_t __adi_stack_irq_object[1024] __attribute__ ((section (".stack_irq")));
+uint8_t __adi_stack_abort_object[1024] __attribute__ ((section (".stack_abort")));
+uint8_t __adi_stack_undef_object[1024] __attribute__ ((section (".stack_undef")));
 
 /***********************************************************************
  * UMM_MALLOC heap initialization
@@ -737,10 +738,10 @@ void adau1761_cfg_pcg(void)
 {
     /* Configure static PCG A parameters */
     PCG_SIMPLE_CONFIG pcg_a = {
-        .pcg = PCG_A,                   // PCG A
-        .clk_src = PCG_SRC_DAI_PIN,     // Sourced from DAI
-        .clk_in_dai_pin = 6,            // Sourced from DAI pin 6
-        .lrclk_clocks_per_frame = 256,  // Not used
+        .pcg = PCG_A,                    // PCG A
+        .clk_src = PCG_SRC_DAI_PIN,      // Sourced from DAI
+        .clk_in_dai_pin = DAI0_MCLK_PIN, // Sourced from DAI MCLK pin
+        .lrclk_clocks_per_frame = 256,   // Not used
         .sync_to_fs = false
     };
 
@@ -1024,189 +1025,6 @@ void spdif_init(APP_CONTEXT *context)
 /***********************************************************************
  * AD2425 / SPORT1 / SRU initialization
  **********************************************************************/
-bool ad2425_to_sport_cfg(bool master, bool rxtx,
-    uint8_t I2SGCFG, uint8_t I2SCFG, SPORT_SIMPLE_CONFIG *sportCfg,
-    bool verbose)
-{
-    SPORT_SIMPLE_CONFIG backup;
-    bool ok = false;
-    uint8_t bits;
-
-    if (!sportCfg) {
-        goto abort;
-    }
-
-    if (verbose) { syslog_print("A2B SPORT CFG"); }
-
-    /* Save a backup in case of failure */
-    memcpy(&backup, sportCfg, sizeof(backup));
-
-    /* Reset elements that are configured */
-    sportCfg->clkDir = SPORT_SIMPLE_CLK_DIR_UNKNOWN;
-    sportCfg->fsDir = SPORT_SIMPLE_FS_DIR_UNKNOWN;
-    sportCfg->dataDir = SPORT_SIMPLE_DATA_DIR_UNKNOWN;
-    sportCfg->tdmSlots = SPORT_SIMPLE_TDM_UNKNOWN;
-    sportCfg->wordSize = SPORT_SIMPLE_WORD_SIZE_UNKNOWN;
-    sportCfg->dataEnable = SPORT_SIMPLE_ENABLE_NONE;
-    sportCfg->bitClkOptions = SPORT_SIMPLE_CLK_DEFAULT;
-    sportCfg->fsOptions = SPORT_SIMPLE_FS_OPTION_DEFAULT;
-
-    /*
-     * Set .clkDir, .fsDir, .dataDir
-     *
-     * if master, set clk/fs to master, else slave
-     * if rxtx, set to input, else output
-     *
-     */
-    if (master) {
-        sportCfg->clkDir = SPORT_SIMPLE_CLK_DIR_MASTER;
-        sportCfg->fsDir = SPORT_SIMPLE_FS_DIR_MASTER;
-    } else {
-        sportCfg->clkDir = SPORT_SIMPLE_CLK_DIR_SLAVE;
-        sportCfg->fsDir = SPORT_SIMPLE_FS_DIR_SLAVE;
-    }
-    if (rxtx) {
-        sportCfg->dataDir = SPORT_SIMPLE_DATA_DIR_RX;
-        if (verbose) { syslog_print(" Direction: RX (AD24xx DTX pins)"); }
-    } else {
-        sportCfg->dataDir = SPORT_SIMPLE_DATA_DIR_TX;
-        if (verbose) { syslog_print(" Direction: TX (AD24xx DRX pins)"); }
-    }
-
-    /*
-     * Set .wordSize
-     *
-     */
-    if (I2SGCFG & 0x10) {
-        sportCfg->wordSize = SPORT_SIMPLE_WORD_SIZE_16BIT;
-        if (verbose) { syslog_print(" Size: 16-bit"); }
-    } else {
-        sportCfg->wordSize = SPORT_SIMPLE_WORD_SIZE_32BIT;
-        if (verbose) { syslog_print(" Size: 32-bit"); }
-    }
-
-    /*
-     * Set .tdmSlots
-     */
-    switch (I2SGCFG & 0x07) {
-        case 0:
-            sportCfg->tdmSlots = SPORT_SIMPLE_TDM_2;
-            if (verbose) { syslog_print(" TDM: 2 (I2S)"); }
-            break;
-        case 1:
-            sportCfg->tdmSlots = SPORT_SIMPLE_TDM_4;
-            if (verbose) { syslog_print(" TDM: 4"); }
-            break;
-        case 2:
-            sportCfg->tdmSlots = SPORT_SIMPLE_TDM_8;
-            if (verbose) { syslog_print(" TDM: 8"); }
-            break;
-        case 4:
-            sportCfg->tdmSlots = SPORT_SIMPLE_TDM_16;
-            if (verbose) { syslog_print(" TDM: 16"); }
-            break;
-        case 7:
-            /*
-             * TDM32 with 32-bit word size is not supported with a
-             * 24.576MCLK
-             */
-            if (sportCfg->wordSize == SPORT_SIMPLE_WORD_SIZE_32BIT) {
-                goto abort;
-            }
-            sportCfg->tdmSlots = SPORT_SIMPLE_TDM_32;
-            if (verbose) { syslog_print(" TDM: 32"); }
-            break;
-        default:
-            goto abort;
-    }
-
-    /*
-     * Set .dataEnable
-     *
-     */
-    if (rxtx) {
-        bits = I2SCFG >> 0;
-    } else {
-        bits = I2SCFG >> 4;
-    }
-    switch (bits & 0x03) {
-        case 0x01:
-            sportCfg->dataEnable = SPORT_SIMPLE_ENABLE_PRIMARY;
-            if (verbose) { syslog_print(" Data Pins: Primary"); }
-            break;
-        case 0x02:
-            sportCfg->dataEnable = SPORT_SIMPLE_ENABLE_SECONDARY;
-            if (verbose) { syslog_print(" Data Pins: Secondary"); }
-            break;
-        case 0x03:
-            sportCfg->dataEnable = SPORT_SIMPLE_ENABLE_BOTH;
-            if (verbose) {
-                syslog_print(" Data Pins: Both");
-                syslog_printf(" Interleave: %s", (bits & 0x04) ? "Yes" : "No");
-            }
-            break;
-        default:
-            sportCfg->dataEnable = SPORT_SIMPLE_ENABLE_NONE;
-            if (verbose) { syslog_print(" Data Pins: None"); }
-            break;
-    }
-
-    /*
-     * Set .bitClkOptions
-     *
-     * Default setting is assert on the rising edge, sample on falling (TDM)
-     *
-     */
-    if (rxtx) {
-        if ((I2SCFG & 0x80) == 0) {
-            sportCfg->bitClkOptions |= SPORT_SIMPLE_CLK_FALLING;
-            if (verbose) { syslog_print(" CLK: Assert falling, Sample rising (I2S)"); }
-        } else {
-            if (verbose) { syslog_print(" CLK: Assert rising, Sample falling"); }
-        }
-    } else {
-        if (I2SCFG & 0x08) {
-            sportCfg->bitClkOptions |= SPORT_SIMPLE_CLK_FALLING;
-            if (verbose) { syslog_print(" CLK: Assert falling, Sample rising (I2S)"); }
-        } else {
-            if (verbose) { syslog_print(" CLK: Assert rising, Sample falling"); }
-        }
-    }
-
-    /*
-     * Set .fsOptions
-     *
-     * Default setting is pulse, rising edge frame sync where the
-     * frame sync signal asserts in the same cycle as the MSB of the
-     * first data slot (TDM)
-     */
-    if (I2SGCFG & 0x80) {
-        sportCfg->fsOptions |= SPORT_SIMPLE_FS_OPTION_INV;
-        if (verbose) { syslog_print(" FS: Falling edge (I2S)"); }
-    } else {
-        if (verbose) { syslog_print(" FS: Rising edge"); }
-    }
-    if (I2SGCFG & 0x40) {
-        sportCfg->fsOptions |= SPORT_SIMPLE_FS_OPTION_EARLY;
-        if (verbose) { syslog_print(" FS: Early (I2S)"); }
-    } else {
-        if (verbose) { syslog_print(" FS: Not Early"); }
-    }
-    if (I2SGCFG & 0x20) {
-        sportCfg->fsOptions |= SPORT_SIMPLE_FS_OPTION_50;
-        if (verbose) { syslog_print(" FS: 50% (I2S)"); }
-    } else {
-        if (verbose) { syslog_print(" FS: Pulse"); }
-    }
-
-    ok = true;
-
-abort:
-    if (!ok) {
-        memcpy(sportCfg, &backup, sizeof(*sportCfg));
-    }
-    return(ok);
-}
 
 static void ad2425_disconnect_master_clocks(void)
 {
@@ -1371,7 +1189,8 @@ bool ad2425_sport_init(APP_CONTEXT *context,
     /* Calculate the SPORT0A TX configuration */
     memset(&sportCfg, 0, sizeof(sportCfg));
     rxtx = false;
-    sportCfgOk = ad2425_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG, &sportCfg, verbose);
+    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG,
+        &sportCfg, verbose, A2B_TO_SPORT_CFG_XCVR_AD242x);
     if (!sportCfgOk) {
         goto abort;
     }
@@ -1406,7 +1225,8 @@ bool ad2425_sport_init(APP_CONTEXT *context,
     /* Calculate the SPORT0B RX configuration */
     memset(&sportCfg, 0, sizeof(sportCfg));
     rxtx = true;
-    sportCfgOk = ad2425_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG, &sportCfg, verbose);
+    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG,
+        &sportCfg, verbose, A2B_TO_SPORT_CFG_XCVR_AD242x);
     if (!sportCfgOk) {
         goto abort;
     }
@@ -1690,6 +1510,7 @@ static SAE_MSG_BUFFER *allocateIpcAudioMsg(APP_CONTEXT *context,
  */
 void sae_buffer_init(APP_CONTEXT *context)
 {
+    APP_CFG *cfg = &context->cfg;
     int i;
 
     /* Allocate and initialize audio IPC ping/pong message buffers */
@@ -1759,40 +1580,40 @@ void sae_buffer_init(APP_CONTEXT *context)
         if (i == 0) {
             /* USB Audio Rx */
             context->usbAudioRxLen =
-                USB_DEFAULT_OUT_AUDIO_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+                cfg->usbOutChannels * cfg->usbWordSize * SYSTEM_BLOCK_SIZE;
             context->usbMsgRx[i] = allocateIpcAudioMsg(
                 context, context->usbAudioRxLen,
-                IPC_STREAMID_USB_RX, USB_DEFAULT_OUT_AUDIO_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+                IPC_STREAMID_USB_RX, cfg->usbOutChannels, cfg->usbWordSize,
                 &context->usbAudioRx[i]
             );
             memset(context->usbAudioRx[i], 0, context->usbAudioRxLen);
 
             /* USB Audio Tx */
             context->usbAudioTxLen =
-                USB_DEFAULT_IN_AUDIO_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+                cfg->usbInChannels * cfg->usbWordSize * SYSTEM_BLOCK_SIZE;
             context->usbMsgTx[i] = allocateIpcAudioMsg(
                 context, context->usbAudioTxLen,
-                IPC_STREAMID_USB_TX, USB_DEFAULT_IN_AUDIO_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+                IPC_STREAMID_USB_TX, cfg->usbInChannels, cfg->usbWordSize,
                 &context->usbAudioTx[i]
             );
             memset(context->usbAudioTx[i], 0, context->usbAudioTxLen);
 
             /* WAV Audio Src */
             context->wavAudioSrcLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+                WAV_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
             context->wavMsgSrc[i] = allocateIpcAudioMsg(
                 context, context->wavAudioSrcLen,
-                IPC_STREAM_ID_WAV_SRC, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+                IPC_STREAM_ID_WAV_SRC, WAV_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
                 &context->wavAudioSrc[i]
             );
             memset(context->wavAudioSrc[i], 0, context->wavAudioSrcLen);
 
             /* WAV Audio Sink */
             context->wavAudioSinkLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+                WAV_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
             context->wavMsgSink[i] = allocateIpcAudioMsg(
                 context, context->wavAudioSinkLen,
-                IPC_STREAM_ID_WAV_SINK, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+                IPC_STREAM_ID_WAV_SINK, WAV_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
                 &context->wavAudioSink[i]
             );
             memset(context->wavAudioSink[i], 0, context->wavAudioSinkLen);
@@ -1836,26 +1657,6 @@ void sae_buffer_init(APP_CONTEXT *context)
                 &context->vbanAudioTx[i]
             );
             memset(context->vbanAudioTx[i], 0, context->vbanAudioTxLen);
-
-            /* Data File Src */
-            context->dataFileSrcLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->fileMsgSrc[i] = allocateIpcAudioMsg(
-                context, context->dataFileSrcLen,
-                IPC_STREAM_ID_FILE_SRC, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->dataFileSrc[i]
-            );
-            memset(context->dataFileSrc[i], 0, context->dataFileSrcLen);
-
-            /* Data File Sink */
-            context->dataFileSinkLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->fileMsgSink[i] = allocateIpcAudioMsg(
-                context, context->dataFileSinkLen,
-                IPC_STREAM_ID_FILE_SINK, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->dataFileSink[i]
-            );
-            memset(context->dataFileSink[i], 0, context->dataFileSinkLen);
 
         }
 

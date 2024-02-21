@@ -8,3 +8,5 @@ SAM-Audio-Starter.ldr
 SHARC0/
 SHARC1/
 *.map
+.cflags*
+.lobjs*

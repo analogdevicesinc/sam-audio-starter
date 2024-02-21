@@ -31,13 +31,18 @@ SAE_MSG_BUFFER *cyclesMsg = NULL;
 IPC_MSG_ROUTING *routeInfo = NULL;
 IPC_MSG_AUDIO *streamInfo[IPC_STREAM_ID_MAX];
 
+/***********************************************************************
+ * optimized for speed
+ **********************************************************************/
 #pragma optimize_for_speed
+
 static void routeAudio(uint8_t clockDomain)
 {
     ROUTE_INFO *route;
     IPC_MSG_AUDIO *src, *sink, *stream;
     uint8_t channels;
-    int32_t *in, *out;
+    int32_t *in32, *out32;
+    int16_t *in16, *out16;
     uint8_t inChannel, outChannel;
     unsigned frame;
     unsigned channel;
@@ -86,10 +91,12 @@ static void routeAudio(uint8_t clockDomain)
         if (src->numFrames != sink->numFrames) {
             continue;
         }
-        if (src->wordSize != sink->wordSize) {
+        if ( (src->wordSize != sizeof(int32_t)) &&
+             (src->wordSize != sizeof(int16_t)) ) {
             continue;
         }
-        if (src->wordSize != sizeof(int32_t)) {
+        if ( (sink->wordSize != sizeof(int32_t)) &&
+             (sink->wordSize != sizeof(int16_t)) ) {
             continue;
         }
         if (route->srcOffset >= src->numChannels) {
@@ -104,8 +111,8 @@ static void routeAudio(uint8_t clockDomain)
         outChannel = route->sinkOffset;
 
         channels = route->channels;
-        in = src->data + inChannel;
-        out = sink->data + outChannel;
+        in32 = src->data + inChannel; in16 = (int16_t *)src->data + inChannel;
+        out32 = sink->data + outChannel; out16 = (int16_t *)sink->data + outChannel;
 
         attenuationShift = route->attenuation / 6;
 
@@ -113,15 +120,32 @@ static void routeAudio(uint8_t clockDomain)
             for (channel = 0; channel < channels; channel++) {
                 if ((outChannel + channel) < sink->numChannels) {
                     if ((inChannel + channel) < src->numChannels) {
-                        sample = *(in + channel);
+                        if (src->wordSize == sizeof(int32_t)) {
+                            sample = *(in32 + channel);
+                        } else {
+                            sample = *(in16 + channel) << 16;
+                        }
                     } else {
                         sample = 0;
                     }
-                    *(out + channel) = sample >> attenuationShift;
+                    sample >>= attenuationShift;
+                    if (route->mix) {
+                        if (sink->wordSize == sizeof(int32_t)) {
+                            *(out32 + channel) += sample;
+                        } else {
+                            *(out16 + channel) += sample >> 16;
+                        }
+                    } else {
+                        if (sink->wordSize == sizeof(int32_t)) {
+                            *(out32 + channel) = sample;
+                        } else {
+                            *(out16 + channel) = sample >> 16;
+                        }
+                    }
                 }
             }
-            in += src->numChannels;
-            out += sink->numChannels;
+            in32 += src->numChannels; in16 += src->numChannels;
+            out32 += sink->numChannels; out16 += sink->numChannels;
         }
 
     }
@@ -136,12 +160,17 @@ static void routeAudio(uint8_t clockDomain)
 
     STOP_CYCLE_COUNT(finalCycles, startCycles);
 
-    if (clockDomain < IPC_CYCLE_DOMAIN_MAX) {
+    if (cyclesMsg &&(clockDomain < IPC_CYCLE_DOMAIN_MAX)) {
         IPC_MSG *msg = sae_getMsgBufferPayload(cyclesMsg);
         msg->cycles.cycles[clockDomain] = finalCycles;
     }
 
 }
+
+#pragma optimize_as_cmd_line
+/***********************************************************************
+ * end optimized for speed
+ **********************************************************************/
 
 /*
  * All audio SPORT interrupts (CODEC, SPDIF, A2B) have been hardware aligned
@@ -195,12 +224,6 @@ static void newAudio(IPC_MSG_AUDIO *audio)
         case IPC_STREAM_ID_VBAN_TX:
             clear = true;
             break;
-        case IPC_STREAM_ID_FILE_SRC:
-            break;
-        case IPC_STREAM_ID_FILE_SINK:
-            clear = true;
-            break;
-
         default:
             unknown = true;
             break;
@@ -213,6 +236,40 @@ static void newAudio(IPC_MSG_AUDIO *audio)
                 audio->numChannels * audio->numFrames * audio->wordSize);
         }
     }
+}
+
+/***********************************************************************
+ * Application IPC functions
+ **********************************************************************/
+SAE_RESULT ipcToCore(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *ipcBuffer,
+    SAE_CORE_IDX core)
+{
+    SAE_RESULT result;
+
+    result = sae_sendMsgBuffer(saeContext, ipcBuffer, core, true);
+    if (result != SAE_RESULT_OK) {
+        sae_unRefMsgBuffer(saeContext, ipcBuffer);
+    }
+
+    return(result);
+}
+
+SAE_RESULT quickIpcToCore(SAE_CONTEXT *saeContext, enum IPC_TYPE type,
+    SAE_CORE_IDX core)
+{
+    SAE_MSG_BUFFER *ipcBuffer;
+    SAE_RESULT result;
+    IPC_MSG *msg;
+
+    ipcBuffer = sae_createMsgBuffer(saeContext, sizeof(*msg), (void **)&msg);
+    if (ipcBuffer) {
+        msg->type = type;
+        result = ipcToCore(saeContext, ipcBuffer, core);
+    } else {
+        result = SAE_RESULT_ERROR;
+    }
+
+    return(result);
 }
 
 static void ipcMsgRx(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
@@ -229,10 +286,12 @@ static void ipcMsgRx(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
     switch (msg->type) {
         case IPC_TYPE_PING:
             ipcBuffer = sae_createMsgBuffer(saeContext, sizeof(*replyMsg), (void **)&replyMsg);
-            replyMsg->type = IPC_TYPE_PING;
-            result = sae_sendMsgBuffer(saeContext, ipcBuffer, IPC_CORE_ARM, true);
-            if (result != SAE_RESULT_OK) {
-                sae_unRefMsgBuffer(saeContext, ipcBuffer);
+            if (ipcBuffer) {
+                replyMsg->type = IPC_TYPE_PING;
+                result = sae_sendMsgBuffer(saeContext, ipcBuffer, IPC_CORE_ARM, true);
+                if (result != SAE_RESULT_OK) {
+                    sae_unRefMsgBuffer(saeContext, ipcBuffer);
+                }
             }
             break;
         case IPC_TYPE_AUDIO:
@@ -244,6 +303,7 @@ static void ipcMsgRx(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *buffer,
             break;
         case IPC_TYPE_CYCLES:
             if (cyclesMsg) {
+                sae_refMsgBuffer(saeContext, cyclesMsg);
                 result = sae_sendMsgBuffer(saeContext, cyclesMsg, IPC_CORE_ARM, true);
                 if (result != SAE_RESULT_OK) {
                     sae_unRefMsgBuffer(saeContext, cyclesMsg);
@@ -279,13 +339,17 @@ int main(int argc, char **argv)
 
     /* Create a persistent message for cycle counts */
     cyclesMsg = sae_createMsgBuffer(saeContext, sizeof(*msg), (void **)&msg);
-    sae_refMsgBuffer(saeContext, cyclesMsg);
-    msg->type = IPC_TYPE_CYCLES;
-    msg->cycles.core = IPC_CORE_SHARC0;
-    msg->cycles.max = IPC_CYCLE_DOMAIN_MAX;
+    if (cyclesMsg) {
+        msg->type = IPC_TYPE_CYCLES;
+        msg->cycles.core = IPC_CORE_SHARC0;
+        msg->cycles.max = IPC_CYCLE_DOMAIN_MAX;
+    }
 
     /* Register an IPC message Rx callback */
     sae_registerMsgReceivedCallback(saeContext, ipcMsgRx, NULL);
+
+    /* Tell the ARM we're ready */
+    quickIpcToCore(saeContext, IPC_TYPE_SHARC0_READY, IPC_CORE_ARM);
 
     while (1) {
         asm("nop;");
