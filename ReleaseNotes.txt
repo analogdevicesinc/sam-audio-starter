@@ -18,7 +18,11 @@ FAESWPROJ-20  -  Add CCES build option to build in CCES as a secondary option (c
 No ticket     -  Various simple-driver and service updates to support other processors and cleanup/refactor\
 No ticket     -  Add support for SAM V2 hardware
 No ticket     -  USB and wave audio properties update
+No ticket     -  Increase SD Card clock speeds
 No ticket     -  Removal of bootloader source code (note that it is still available in v1.0.0 and eventually will be available in a standalone project)
+No ticket     -  Improvements to A2B commandlist
+No ticket     -  Improvements to Filesystem handling
+No ticket     -  Add/modify shell commands including: drive, ls, df, fsck, meminfo, sdtest, route, edit, delay, cmdlist, cmp
 
 Bug Fixes
 ---------
