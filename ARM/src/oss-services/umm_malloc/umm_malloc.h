@@ -40,8 +40,11 @@ void *umm_realloc_heap( umm_heap_t heap, void *ptr, size_t size );
 void  umm_free_heap( umm_heap_t heap, void *ptr );
 
 void *umm_malloc_aligned( size_t size, size_t alignment );
-void *umm_malloc_heap_aligned( umm_heap_t heap, size_t size, size_t alignment );
+void *umm_calloc_aligned( size_t num, size_t item_size, size_t alignment  );
 void  umm_free_aligned( void *ptr );
+
+void *umm_malloc_heap_aligned( umm_heap_t heap, size_t size, size_t alignment );
+void *umm_calloc_heap_aligned(umm_heap_t heap, size_t num, size_t item_size, size_t alignment  );
 void  umm_free_heap_aligned( umm_heap_t heap, void *ptr );
 
 

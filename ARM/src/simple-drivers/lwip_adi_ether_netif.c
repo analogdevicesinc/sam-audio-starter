@@ -620,7 +620,7 @@ adi_ether_netif_low_level_init(struct netif *netif)
     netif->mtu = 1500;
 
     /* device capabilities */
-    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_IGMP;
 
     /* Set ADI EMAC driver entry point */
     if (adi_ether->port == EMAC0) {

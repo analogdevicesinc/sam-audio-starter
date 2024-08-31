@@ -17,21 +17,22 @@
 #include "sae_cfg.h"
 #include "sae_priv.h"
 
+#pragma pack(1)
 typedef struct _SAE_IPC_MSG_QUEUE {
     uint8_t head;
     uint8_t tail;
     uint8_t size;
     uint8_t align;
-    void *queue[IPC_MAX_MSG_QUEUE_SIZE];
+    uint32_t queue[IPC_MAX_MSG_QUEUE_SIZE];
 } SAE_IPC_MSG_QUEUE;
+#pragma pack()
 
 #pragma pack(1)
 typedef struct _SAE_SHARC_ARM_IPC {
     uint32_t lock;
     int32_t idx2trigger[IPC_MAX_CORES];
     SAE_IPC_MSG_QUEUE msgQueues[IPC_MAX_CORES];
-    SAE_STREAM *streamList;
-    uint8_t heap[1];
+    uint8_t heap[];
 } SAE_SHARC_ARM_IPC;
 #pragma pack()
 

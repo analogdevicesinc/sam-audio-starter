@@ -411,27 +411,27 @@ static ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_read_ctrl_reg_block(
 {
     ADI_A2B_CMDLIST_CFG *cfg = &list->cfg;
     ADI_A2B_CMDLIST_RESULT result;
-    uint8_t reg;
+    uint8_t adr[4];
 
-    if (addrBytes != 1) {
+    if (addrBytes == 1) {
+        adr[0] = addr & 0xFF;
+    } else if (addrBytes == 2) {
+        adr[0] = ((addr >> 8) & 0xFF);
+        adr[1] = addr & 0xFF;
+    } else if (addrBytes == 4) {
+        adr[0] = ((addr >> 24) & 0xFF);
+        adr[1] = ((addr >> 16) & 0xFF);
+        adr[2] = ((addr >> 8) & 0xFF);
+        adr[3] = addr & 0xFF;
+    } else {
         return(ADI_A2B_CMDLIST_UNSUPPORTED_ADDR_BYTES);
     }
 
-    reg = (uint8_t)(addr & 0xFF);
-
-    adi_a2b_cmdlist_log(list, true, "(w %02X) %02X ", i2cAddr, reg);
-
     result = cfg->twiWriteRead(
-        cfg->handle, i2cAddr, &reg, addrBytes, values, len, cfg->usr
+        cfg->handle, i2cAddr, adr, addrBytes, values, len, cfg->usr
     );
 
-    adi_a2b_cmdlist_log(list, false, "(r) ");
-    if (result == ADI_A2B_CMDLIST_SUCCESS) {
-        for (uint16_t i = 0; i < len; i++) {
-            adi_a2b_cmdlist_log(list, false, "%02X ", values[i]);
-        }
-    }
-    adi_a2b_cmdlist_log(list, false, "\n");
+    adi_a2b_cmdlist_log_write_read(list, i2cAddr, adr, addrBytes, values, len);
 
     adi_a2b_cmdlist_log_error(list, result);
 

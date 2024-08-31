@@ -88,7 +88,7 @@ static FS_DEVMAN_DEVICE_ENTRY *fs_devman_find(
         if (entry->allocated) {
             colonIdx = strlen(entry->info.name) - 1;
             if ( (strncmp(name, entry->info.name, colonIdx) == 0) &&
-                 (entry->info.name[colonIdx] == ':') ) {
+                 (name[colonIdx] == ':') ) {
                 if (fname) {
                     *fname = &name[colonIdx + 1];
                 }

@@ -76,6 +76,8 @@ CLD_USB_Data_Transmit_Return_Type cdc_tx_serial_data(unsigned short length,
 void cdc_register_tx_callback(CDC_TX_COMPLETE_CALLBACK cb, void *usrPtr);
 void cdc_register_rx_callback(CDC_RX_COMPLETE_CALLBACK cb, void *usrPtr);
 
+void cdc_usb_event(CLD_USB_Event event);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

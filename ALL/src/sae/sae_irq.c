@@ -38,7 +38,8 @@ static void sae_interruptHandler(uint32_t iid, void *handlerArg)
         if (buffer) {
             if (buffer->msgType == MSG_TYPE_USER) {
                 if (context->msgRxUsrCB) {
-                    context->msgRxUsrCB(context, buffer, buffer->payload,
+                    context->msgRxUsrCB(context, buffer,
+                        (void *)(uintptr_t)buffer->payload,
                         context->msgRxUsrPtr);
                 }
             } else if (buffer->msgType == MSG_TYPE_STREAM) {
@@ -90,7 +91,11 @@ static SAE_RESULT sae_configIRQ(SAE_CONTEXT *context)
 
     /* Set the interrupt to edge-sensitive for use with the TRU (default is level-sensitive) */
 #if defined(__ADSPARM__)
+#if defined(__ADSPSC598_FAMILY__)
+    adi_gic_ConfigInt(iid, ADI_GIC_INT_EDGE_SENSITIVE);
+#else
     adi_gic_ConfigInt(iid, ADI_GIC_INT_EDGE_SENSITIVE, ADI_GIC_INT_HANDLING_MODEL_1_N);
+#endif
 #else
     adi_sec_EnableEdgeSense(iid, true);
 #endif
@@ -132,13 +137,15 @@ uint32_t sae_getInterruptID(void)
         case ADI_CORE_ARM:
             iid = INTR_TRU0_INT3;
             break;
-#endif 
+#endif
         case ADI_CORE_SHARC0:
             iid = INTR_TRU0_INT7;
             break;
+#if __NUM_SHARC_CORES__ > 1
         case ADI_CORE_SHARC1:
             iid = INTR_TRU0_INT11;
             break;
+#endif
         default:
             break;
     }

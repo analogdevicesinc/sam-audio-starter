@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -10,14 +10,16 @@
  */
 
 #include <stddef.h>
+#include <stdbool.h>
 #include "cdc.h"
 
-CDC_TX_COMPLETE_CALLBACK txCB = NULL;
-void *txUsrPtr = NULL;
+static CDC_TX_COMPLETE_CALLBACK txCB = NULL;
+static void *txUsrPtr = NULL;
 
-CDC_RX_COMPLETE_CALLBACK rxCB = NULL;
-void *rxUsrPtr = NULL;
-unsigned short cdc_rx_bytes;
+static CDC_RX_COMPLETE_CALLBACK rxCB = NULL;
+static void *rxUsrPtr = NULL;
+static unsigned short cdc_rx_bytes;
+static bool ready = false;
 
 /**
  * Buffer used to store the received serial data.
@@ -32,7 +34,7 @@ cdc_line_coding =
     .data_terminal_rate = 115200,
     .num_stop_bits      = CLD_SC58x_CDC_LINE_CODING_1_STOP_BITS,
     .parity             = CLD_SC58x_CDC_LINE_CODING_PARITY_NONE,
-    .num_data_bits      = 8,
+    .num_data_bits      = CLD_SC58x_CDC_LINE_CODING_NUM_DATA_BITS_8,
 };
 
 /*!< CDC Serial Data Bulk OUT endpoint parameters. */
@@ -59,17 +61,34 @@ cdc_notification_ep_params =
 {
     .endpoint_number                = 4,
     .max_packet_size_full_speed     = 64,
-    .polling_interval_full_speed    = 1,
     .max_packet_size_high_speed     = 64,
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
+    .polling_interval_full_speed    = 1,
     .polling_interval_high_speed    = 4,  /* 1ms */
+#endif
 };
 
+static void cdc_serial_data_receive(void);
+
 CLD_USB_Data_Received_Return_Type
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+cdc_serial_data_rx_transfer_complete(unsigned int num_bytes)
+#else
 cdc_serial_data_rx_transfer_complete(void)
+#endif
 {
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    cdc_rx_bytes = num_bytes;
+#endif
+
     if (rxCB) {
         rxCB(cdc_rx_buffer, cdc_rx_bytes, rxUsrPtr);
     }
+
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    cdc_serial_data_receive();
+#endif
+
     return CLD_USB_DATA_GOOD;
 }
 
@@ -83,6 +102,24 @@ cdc_serial_data_received(CLD_USB_Transfer_Params *p_transfer_data)
     cdc_rx_bytes = p_transfer_data->num_bytes;
     return CLD_USB_TRANSFER_ACCEPT;
 }
+
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+static void cdc_usb_rx_aborted(void)
+{
+    cdc_serial_data_receive();
+}
+
+static void cdc_serial_data_receive(void)
+{
+    static CLD_USB_Transfer_Params transfer_params;
+    transfer_params.num_bytes = sizeof(cdc_rx_buffer);
+    transfer_params.p_data_buffer = cdc_rx_buffer;
+    transfer_params.callback.fp_usb_out_transfer_complete = cdc_serial_data_rx_transfer_complete;
+    transfer_params.fp_transfer_aborted_callback = cdc_usb_rx_aborted;
+    transfer_params.transfer_timeout_ms = 0;
+    cld_cdc_lib_receive_serial_data(&transfer_params);
+}
+#endif
 
 CLD_USB_Transfer_Request_Return_Type
 cdc_cmd_send_encapsulated_cmd(CLD_USB_Transfer_Params *p_transfer_data)
@@ -144,6 +181,9 @@ cdc_tx_serial_data(unsigned short length, unsigned char *p_buffer, unsigned time
 {
     static CLD_USB_Transfer_Params transfer_params;
     CLD_USB_Data_Transmit_Return_Type ret;
+    if (!ready) {
+        return(CLD_USB_TRANSMIT_FAILED);
+    }
     transfer_params.num_bytes = length;
     transfer_params.p_data_buffer = p_buffer;
     transfer_params.callback.fp_usb_in_transfer_complete = cdc_usb_tx_complete;
@@ -163,4 +203,32 @@ void cdc_register_rx_callback(CDC_RX_COMPLETE_CALLBACK cb, void *usrPtr)
 {
     rxCB = cb;
     rxUsrPtr = usrPtr;
+}
+
+void cdc_usb_event(CLD_USB_Event event)
+{
+    switch (event)
+    {
+        case CLD_USB_CABLE_CONNECTED:
+            break;
+        case CLD_USB_CABLE_DISCONNECTED:
+            ready = false;
+            break;
+        case CLD_USB_ENUMERATED_CONFIGURED_HS:
+        case CLD_USB_ENUMERATED_CONFIGURED_FS:
+            ready = true;
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+            cdc_serial_data_receive();
+#endif
+            break;
+        case CLD_USB_UN_CONFIGURED:
+            ready = false;
+            break;
+        case CLD_USB_BUS_RESET:
+            ready = false;
+            break;
+        default:
+            break;
+
+    }
 }

@@ -15,6 +15,12 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+/* Application includes */
+#include "gpio_pins.h"
+
+#define PB1 GPIO_PIN_PB1
+#define PB2 GPIO_PIN_PB2
+
 portTASK_FUNCTION(pushButtonTask, pvParameters);
 
 #endif

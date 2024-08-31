@@ -23,6 +23,14 @@
 #include "cpu_load.h"
 #include "clocks.h"
 
+#ifndef UAC2_SOUNDCARD_ENTER_CRITICAL
+#define UAC2_SOUNDCARD_ENTER_CRITICAL adi_rtl_disable_interrupts
+#endif
+
+#ifndef UAC2_SOUNDCARD_EXIT_CRITICAL
+#define UAC2_SOUNDCARD_EXIT_CRITICAL adi_rtl_reenable_interrupts
+#endif
+
 /*
  * General Info:
  *
@@ -87,8 +95,6 @@ static void uac2_audio_stream_data_transmitted (void);
 static void uac2_audio_stream_data_transmit_aborted (void);
 static void uac2_audio_stream_data_transmitted_X (void);
 static void uac2_audio_stream_data_transmit_aborted_X (void);
-static CLD_USB_Transfer_Request_Return_Type uac2_stream_data_received (CLD_USB_Transfer_Params * p_transfer_data);
-static CLD_USB_Data_Received_Return_Type uac2_stream_data_receive_complete (void);
 static CLD_USB_Transfer_Request_Return_Type uac2_set_req_cmd (
     CLD_SC58x_Audio_2_0_Cmd_Req_Parameters * p_req_params,
     CLD_USB_Transfer_Params * p_transfer_data
@@ -97,7 +103,6 @@ static CLD_USB_Transfer_Request_Return_Type uac2_get_req_cmd (
     CLD_SC58x_Audio_2_0_Cmd_Req_Parameters * p_req_params,
     CLD_USB_Transfer_Params * p_transfer_data
 );
-static CLD_USB_Data_Received_Return_Type uac2_set_volume_req (void);
 static void uac2_streaming_rx_endpoint_enabled (CLD_Boolean enabled);
 static void uac2_streaming_tx_endpoint_enabled (CLD_Boolean enabled);
 static void uac2_usb_event (CLD_USB_Event event);
@@ -114,19 +119,30 @@ void uac2_syslog(char *log);
 
 /**
  * Structure used to store the current USB volume settings.
+ * NOTE: master, vol[x], and mute must be 32-bit aligned and uncached
  */
 typedef struct
 {
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    uint32_t master;              /*!< Master Volume setting */
+    uint32_t *vol;                /*!< Pointer to array of channel volumes */
+    uint32_t mute;                /*!< Mute setting */
+    uint16_t min;                 /*!< Volume range minimum setting */
+    uint16_t max;                 /*!< Volume range maximum setting */
+    uint16_t resolution;          /*!< Volume range resolution */
+#else
     uint16_t master;              /*!< Master Volume setting */
     uint16_t *vol;                /*!< Pointer to array of channel volumes */
     uint16_t min;                 /*!< Volume range minimum setting */
     uint16_t max;                 /*!< Volume range maximum setting */
     uint16_t resolution;          /*!< Volume range resolution */
     uint8_t  mute;                /*!< Mute setting */
+#endif
 } UAC2_VOLUME;
 
 /**
  * Structure used to store the current USB clock source.
+ * NOTE: current must be 32-bit aligned and uncached
  */
 typedef struct
 {
@@ -220,18 +236,9 @@ static UAC2_STATE uac2_state;
  */
 static void uac2_feedback_xfr_done (void)
 {
-    uint32_t inCycles, outCycles;
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
     uac2_state.rate_feedback_idle = CLD_TRUE;
     uac2_state.first_feedback = CLD_FALSE;
     uac2_tx_feedback_data();
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 }
 
 /**
@@ -286,11 +293,6 @@ static void uac2_tx_feedback_data ( void )
  */
 static void uac2_audio_stream_data_transmitted (void)
 {
-    uint32_t inCycles, outCycles;
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
     /* Keep track of IN (Tx) packet departure times for statistics */
     if (uac2_state.cfg.usbInStats) {
         if (uac2_state.inPktFirst == CLD_TRUE) {
@@ -319,10 +321,6 @@ static void uac2_audio_stream_data_transmitted (void)
     /* Prepare next IN transfer */
     uac2_state.in_idle = CLD_TRUE;
     uac2_tx_audio_data();
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 }
 
 /**
@@ -332,11 +330,6 @@ static void uac2_audio_stream_data_transmitted (void)
  */
 static void uac2_audio_stream_data_transmitted_X (void)
 {
-    uint32_t inCycles, outCycles;
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
     /* Indicate IN (Tx) data is active */
     if (uac2_state.in_active == CLD_FALSE) {
 
@@ -354,10 +347,6 @@ static void uac2_audio_stream_data_transmitted_X (void)
     }
     uac2_state.in_idle = CLD_TRUE;
     uac2_tx_audio_data();
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 }
 
 /**
@@ -366,17 +355,13 @@ static void uac2_audio_stream_data_transmitted_X (void)
  */
 static void uac2_audio_stream_data_transmit_aborted (void)
 {
-    uint32_t inCycles, outCycles;
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
     if (uac2_state.in_active == CLD_TRUE) {
         if (uac2_state.cfg.usbInStats) {
             uac2_state.cfg.usbInStats->aborted++;
         }
     }
 
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
     /* HACK: This clears the isochronous IN endpoint fifo when
      *       the IN stream stops to keep the last packet from
      *       leaking out if the stream restarts.
@@ -387,13 +372,10 @@ static void uac2_audio_stream_data_transmit_aborted (void)
             BITM_USB_EP_TXCSR_P_SENTSTALL | BITM_USB_EP_TXCSR_P_URUNERR;
         *pREG_USB0_EP2_TXCSR_P |= BITM_USB_EP_TXCSR_P_FLUSHFIFO | w0cRegisters;
     }
+#endif
 
     uac2_state.in_idle = CLD_TRUE;
     uac2_tx_audio_data();
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 }
 
 /**
@@ -401,17 +383,8 @@ static void uac2_audio_stream_data_transmit_aborted (void)
  */
 static void uac2_audio_stream_data_transmit_aborted_X (void)
 {
-    uint32_t inCycles, outCycles;
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
     uac2_state.in_idle = CLD_TRUE;
     uac2_tx_audio_data();
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 }
 
 /**
@@ -419,28 +392,28 @@ static void uac2_audio_stream_data_transmit_aborted_X (void)
  */
 static void uac2_tx_audio_data (void)
 {
-    static CLD_USB_Transfer_Params audio_data_tx_params;
+    static CLD_USB_Transfer_Params audio_data_tx_params = {
+        .transfer_timeout_ms = 100
+    };
+    CLD_USB_Data_Transmit_Return_Type rv;
     void *nextData;
 
     /* If the Isochronous IN endpoint is enabled and idle */
     if ((uac2_state.in_enabled == CLD_TRUE) &&
         (uac2_state.in_idle == CLD_TRUE))
     {
-        /* Wait until the first isochronous IN token before setting active.
-         * Send a zero length packet to keep from tainting the desired audio
-         * data stream.
-         */
         if (uac2_state.in_active == CLD_FALSE) {
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+            memset(uac2_state.in_data, 0, uac2_state.in_size);
+            audio_data_tx_params.num_bytes = uac2_state.in_size;
+#else
             audio_data_tx_params.num_bytes = 0;
-            audio_data_tx_params.p_data_buffer = uac2_state.in_data;
+#endif
             audio_data_tx_params.callback.fp_usb_in_transfer_complete =
                 uac2_audio_stream_data_transmitted_X;
-            audio_data_tx_params.transfer_timeout_ms = 100;
             audio_data_tx_params.fp_transfer_aborted_callback =
                 uac2_audio_stream_data_transmit_aborted_X;
-            if (cld_sc58x_audio_2_0_w_cdc_lib_transmit_audio_data(&audio_data_tx_params) == CLD_USB_TRANSMIT_SUCCESSFUL) {
-                uac2_state.in_idle = CLD_FALSE;
-            }
+
         } else {
             if (uac2_state.cfg.txCallback) {
                 nextData = uac2_state.in_data;
@@ -449,28 +422,24 @@ static void uac2_tx_audio_data (void)
                     uac2_state.cfg.usrPtr
                 );
                 uac2_state.in_data = nextData;
-            } else {
-                uac2_state.in_size = 0;
             }
-            /* Queue the packet for transmission */
             audio_data_tx_params.num_bytes = uac2_state.in_size;
-            audio_data_tx_params.p_data_buffer = uac2_state.in_data;
             audio_data_tx_params.callback.fp_usb_in_transfer_complete =
                 uac2_audio_stream_data_transmitted;
-            audio_data_tx_params.transfer_timeout_ms = 100;
             audio_data_tx_params.fp_transfer_aborted_callback =
                 uac2_audio_stream_data_transmit_aborted;
-            if (cld_sc58x_audio_2_0_w_cdc_lib_transmit_audio_data(&audio_data_tx_params) == CLD_USB_TRANSMIT_SUCCESSFUL) {
-                uac2_state.in_idle = CLD_FALSE;
-                uac2_state.cfg.usbInStats->lastPktSize = uac2_state.in_size;
-            } else {
-                if (uac2_state.cfg.usbInStats) {
-                    uac2_state.cfg.usbInStats->failed++;
-                }
+        }
+        audio_data_tx_params.p_data_buffer = uac2_state.in_data;
+        rv = cld_sc58x_audio_2_0_w_cdc_lib_transmit_audio_data(&audio_data_tx_params);
+        if ( rv == CLD_USB_TRANSMIT_SUCCESSFUL) {
+            uac2_state.in_idle = CLD_FALSE;
+        }
+        if (uac2_state.cfg.usbInStats) {
+            uac2_state.cfg.usbInStats->lastPktSize = uac2_state.in_size;
+            if (rv != CLD_USB_TRANSMIT_SUCCESSFUL) {
+                uac2_state.cfg.usbInStats->failed++;
             }
-            if (uac2_state.cfg.usbInStats) {
-                uac2_state.cfg.usbInStats->count++;
-            }
+            uac2_state.cfg.usbInStats->count++;
         }
     }
 }
@@ -478,6 +447,7 @@ static void uac2_tx_audio_data (void)
 /*************************************************************************
  * USB Audio Isochronous OUT / Audio Receive functions
  *************************************************************************/
+static void uac2_stream_data_receive(void);
 
 /**
  * Function called when speaker data has been received.
@@ -485,13 +455,17 @@ static void uac2_tx_audio_data (void)
  * @retval CLD_USB_DATA_GOOD
  * @retval CLD_USB_DATA_BAD_STALL
  */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+static CLD_USB_Data_Received_Return_Type uac2_stream_data_receive_complete (unsigned int num_bytes)
+#else
 static CLD_USB_Data_Received_Return_Type uac2_stream_data_receive_complete (void)
+#endif
 {
-    uint32_t inCycles, outCycles;
     void *nextData;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    uac2_state.out_size = num_bytes & 0xFFFF;
+#endif
 
     /* Keep track of OUT (Rx) packet arrival times for statistics */
     if (uac2_state.cfg.usbOutStats) {
@@ -527,9 +501,9 @@ static CLD_USB_Data_Received_Return_Type uac2_stream_data_receive_complete (void
         uac2_state.out_data = nextData;
     }
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    uac2_stream_data_receive();
+#endif
 
     return CLD_USB_DATA_GOOD;
 }
@@ -568,6 +542,7 @@ static CLD_USB_Data_Received_Return_Type uac2_stream_data_receive_complete (void
  * @retval CLD_USB_TRANSFER_STALL - Stall the OUT endpoint.
  *
  */
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
 static CLD_USB_Transfer_Request_Return_Type uac2_stream_data_received (CLD_USB_Transfer_Params * p_transfer_data)
 {
     uac2_state.out_size = p_transfer_data->num_bytes;
@@ -578,6 +553,28 @@ static CLD_USB_Transfer_Request_Return_Type uac2_stream_data_received (CLD_USB_T
 
     return CLD_USB_TRANSFER_ACCEPT;
 }
+#endif
+
+/**
+ * This function primes the Isochronous OUT endpoint so it will
+ * receive data.
+ */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+static void uac2_stream_data_receive(void)
+{
+    static CLD_USB_Transfer_Params transfer_params;
+    CLD_USB_Data_Receive_Return_Type rv;
+
+    transfer_params.num_bytes = uac2_state.high_speed ?
+        uac2_state.maxOutSizeHigh : uac2_state.maxOutSizeFull;
+    transfer_params.p_data_buffer = uac2_state.out_data;
+    transfer_params.transfer_timeout_ms = 0;
+    transfer_params.fp_transfer_aborted_callback = CLD_NULL;
+    transfer_params.callback.fp_usb_out_transfer_complete = uac2_stream_data_receive_complete;
+
+    rv = cld_audio_2_0_lib_receive_stream_data(&transfer_params);
+}
+#endif
 
 /*************************************************************************
  * Volume / Mute control functions
@@ -590,8 +587,25 @@ static CLD_USB_Transfer_Request_Return_Type uac2_stream_data_received (CLD_USB_T
  * @retval CLD_USB_DATA_GOOD - Received data is valid.
  * @retval CLD_USB_DATA_BAD_STALL - Received data is invalid.
  */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+static CLD_USB_Data_Received_Return_Type uac2_set_volume_req (unsigned int num_bytes)
+#else
 static CLD_USB_Data_Received_Return_Type uac2_set_volume_req (void)
+#endif
 {
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    int i;
+    for (i = 0; i < uac2_state.cfg.usbOutChannels; i++) {
+        uac2_state.speaker_output_volume.vol[i] &= 0x0000FFFF;
+    }
+    uac2_state.speaker_output_volume.master &= 0x0000FFFF;
+    uac2_state.speaker_output_volume.mute &= 0x000000FF;
+    for (i = 0; i < uac2_state.cfg.usbInChannels; i++) {
+        uac2_state.mic_input_volume.vol[i] &= 0x0000FFFF;
+    }
+    uac2_state.mic_input_volume.master &= 0x0000FFFF;
+    uac2_state.mic_input_volume.mute &= 0x000000FF;
+#endif
     /* Flag that new volume settings have been received. */
     uac2_state.volume_changed = CLD_TRUE;
     return CLD_USB_DATA_GOOD;
@@ -651,7 +665,7 @@ static CLD_USB_Transfer_Request_Return_Type uac2_set_req_cmd (CLD_SC58x_Audio_2_
     numBytes = 0;
     maxChannels = 0;
 
-    /* Select to the correct Feature Unit */
+    /* Select the correct Feature Unit */
     switch (p_req_params->entity_id) {
         case SPKR_FEATURE_UNIT_ID:
             featureUnit = &uac2_state.speaker_output_volume;
@@ -893,6 +907,9 @@ static void uac2_streaming_rx_endpoint_enabled (CLD_Boolean enabled)
     if (enabled == CLD_TRUE) {
         uac2_syslog("UAC 2.0 OUT Enabled");
         uac2_state.first_feedback = CLD_TRUE;
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+        uac2_stream_data_receive();
+#endif
     } else {
         uac2_syslog("UAC 2.0 OUT Disabled");
         uac2_state.rate_feedback_idle = CLD_TRUE;
@@ -911,7 +928,9 @@ static void uac2_streaming_tx_endpoint_enabled (CLD_Boolean enabled)
     uac2_state.in_enabled = enabled;
 
     if (enabled == CLD_TRUE) {
-        /* Do nothing */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+        uac2_tx_audio_data();
+#endif
     } else {
         uac2_syslog("UAC 2.0 IN Disabled");
         if (uac2_state.cfg.endpointEnableCallback) {
@@ -932,7 +951,14 @@ static void uac2_streaming_tx_endpoint_enabled (CLD_Boolean enabled)
  */
 static void uac2_usb0_isr(uint32_t Event, void *pArg)
 {
+
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
+
     cld_usb0_isr_callback();
+
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 
 /**
@@ -943,7 +969,13 @@ static void uac2_usb0_isr(uint32_t Event, void *pArg)
 #if defined(__ADSPSC589_FAMILY__)
 static void uac2_usb1_isr(uint32_t Event, void *pArg)
 {
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
+
     cld_usb1_isr_callback();
+
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 #endif
 
@@ -1022,6 +1054,8 @@ static void uac2_usb_event (CLD_USB_Event event)
         default:
             break;
     }
+
+    cdc_usb_event(event);
 }
 
 void uac2_syslog(char *log)
@@ -1042,37 +1076,7 @@ void uac2_syslog(char *log)
 static CLD_SC58x_Audio_2_0_w_CDC_Lib_Init_Params uac2_init_params =
 {
 #if defined(__ADSPSC589_FAMILY__)
-    .usb_config                                         = CLD_USB0_AUDIO_AND_CDC,
-#endif
-    .enable_dma                                         = CLD_TRUE,
-
-    .audio_control_category_code                        = 0x0A,       /* Pro Audio */
-    .p_audio_control_interrupt_params                   = CLD_NULL,
-
-    .p_unit_and_terminal_descriptors                    = CLD_NULL,   /* Set during cfg */
-    .unit_and_terminal_descriptors_length               = 0,          /* Set during cfg */
-    .p_audio_streaming_rx_interface_params              = CLD_NULL,   /* Set during cfg */
-    .p_audio_rate_feedback_rx_params                    = CLD_NULL,   /* Set during cfg */
-    .p_audio_streaming_tx_interface_params              = CLD_NULL,   /* Set during cfg */
-
-    .fp_audio_stream_data_received                      = uac2_stream_data_received,
-
-    .fp_audio_set_req_cmd                               = uac2_set_req_cmd,
-    .fp_audio_get_req_cmd                               = uac2_get_req_cmd,
-
-    .fp_audio_streaming_rx_endpoint_enabled             = uac2_streaming_rx_endpoint_enabled,
-    .fp_audio_streaming_tx_endpoint_enabled             = uac2_streaming_tx_endpoint_enabled,
-
-    .p_usb_string_audio_control_interface               = CLD_NULL,
-    .p_usb_string_audio_streaming_out_interface         = "Audio 2.0 Output",
-    .p_usb_string_audio_streaming_in_interface          = "Audio 2.0 Input",
-
-    .user_string_descriptor_table_num_entries           = 0,
-    .p_user_string_descriptor_table                     = NULL,
-
-    .usb_string_language_id                             = 0x0409,        /* English (US) language ID */
-
-#if defined(__ADSPSC589_FAMILY__)
+    .usb_config = CLD_USB0_AUDIO_AND_CDC,
     .usb_port_settings[CLD_USB_0].vendor_id             = 0,             /* Set during cfg */
     .usb_port_settings[CLD_USB_0].product_id            = 0,             /* Set during cfg */
     .usb_port_settings[CLD_USB_0].usb_bus_max_power     = 0,
@@ -1103,36 +1107,58 @@ static CLD_SC58x_Audio_2_0_w_CDC_Lib_Init_Params uac2_init_params =
     .p_usb_string_configuration  = CLD_NULL,
     .fp_cld_usb_event_callback   = uac2_usb_event,
 #endif
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
+    .enable_dma = CLD_TRUE,
+    .p_notification_endpoint_params    = &cdc_notification_ep_params,
+    .p_audio_control_interrupt_params  = CLD_NULL,
+#endif
 
-    /* Begin CDC settings (cdc.h) */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    .phy_hs_timeout_calibration           = 48/8, /* Round 43 so it is evenly divisable by 8. */
+    .phy_fs_timeout_calibration           = 0,
+    .phy_delay_req_after_ulip_chirp_cmd   = CLD_TRUE,
+    .fp_init_usb_phy                      = CLD_NULL,
+#endif
+    .user_string_descriptor_table_num_entries  = 0,
+    .p_user_string_descriptor_table            = CLD_NULL,
+    .usb_string_language_id                    = 0x0409,        /* English (US) language ID */
+    .fp_cld_lib_status                         = user_cld_lib_status,
 
-    .p_serial_data_rx_endpoint_params                   = &cdc_serial_data_rx_ep_params,
-    .p_serial_data_tx_endpoint_params                   = &cdc_serial_data_tx_ep_params,
-    .p_notification_endpoint_params                     = &cdc_notification_ep_params,
+    // UAC2 parameters
+    .audio_control_category_code                = 0x0A,       /* Pro Audio */
+    .p_unit_and_terminal_descriptors            = CLD_NULL,   /* Set during cfg */
+    .unit_and_terminal_descriptors_length       = 0,          /* Set during cfg */
+    .p_audio_streaming_rx_interface_params      = CLD_NULL,   /* Set during cfg */
+    .p_audio_rate_feedback_rx_params            = CLD_NULL,   /* Set during cfg */
+    .p_audio_streaming_tx_interface_params      = CLD_NULL,   /* Set during cfg */
+    .fp_audio_set_req_cmd                       = uac2_set_req_cmd,
+    .fp_audio_get_req_cmd                       = uac2_get_req_cmd,
+    .fp_audio_streaming_rx_endpoint_enabled     = uac2_streaming_rx_endpoint_enabled,
+    .fp_audio_streaming_tx_endpoint_enabled     = uac2_streaming_tx_endpoint_enabled,
+    .p_usb_string_audio_control_interface       = CLD_NULL,
+    .p_usb_string_audio_streaming_out_interface = "Audio 2.0 Output",
+    .p_usb_string_audio_streaming_in_interface  = "Audio 2.0 Input",
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
+    .fp_audio_stream_data_received              = uac2_stream_data_received,
+#endif
 
-    .fp_serial_data_received                            = cdc_serial_data_received,
-
-    .fp_cdc_cmd_send_encapsulated_cmd                   = cdc_cmd_send_encapsulated_cmd,
-    .fp_cdc_cmd_get_encapsulated_resp                   = cdc_cmd_get_encapsulated_resp,
-
-    .fp_cdc_cmd_set_line_coding                         = cdc_cmd_set_line_coding,
-    .fp_cdc_cmd_get_line_coding                         = cdc_cmd_get_line_coding,
-
-    .fp_cdc_cmd_set_control_line_state                  = cdc_cmd_set_control_line_state,
-
-    .fp_cdc_cmd_send_break                              = cdc_cmd_send_break,
-
-    .support_cdc_network_connection                     = 1,
-    .cdc_class_bcd_version                              = 0x0120,       /* CDC Version 1.2 */
-    .cdc_class_control_protocol_code                    = 0,            /* No Class Specific protocol */
-
-    .p_usb_string_communication_class_interface         = "CLD CDC Ctrl",
-    .p_usb_string_data_class_interface                  = "CLD CDC Data",
-
-    /* End CDC settings */
-
-    .fp_cld_lib_status                                  = user_cld_lib_status,
-
+    /* CDC settings (cdc.h) */
+    .p_serial_data_rx_endpoint_params           = &cdc_serial_data_rx_ep_params,
+    .p_serial_data_tx_endpoint_params           = &cdc_serial_data_tx_ep_params,
+    .fp_cdc_cmd_send_encapsulated_cmd           = cdc_cmd_send_encapsulated_cmd,
+    .fp_cdc_cmd_get_encapsulated_resp           = cdc_cmd_get_encapsulated_resp,
+    .fp_cdc_cmd_set_line_coding                 = cdc_cmd_set_line_coding,
+    .fp_cdc_cmd_get_line_coding                 = cdc_cmd_get_line_coding,
+    .fp_cdc_cmd_set_control_line_state          = cdc_cmd_set_control_line_state,
+    .fp_cdc_cmd_send_break                      = cdc_cmd_send_break,
+    .support_cdc_network_connection             = 1,
+    .cdc_class_bcd_version                      = 0x0120,       /* CDC Version 1.2 */
+    .cdc_class_control_protocol_code            = 0,            /* No Class Specific protocol */
+    .p_usb_string_communication_class_interface = "CLD CDC Ctrl",
+    .p_usb_string_data_class_interface          = "CLD CDC Data",
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
+    .fp_serial_data_received                    = cdc_serial_data_received,
+#endif
 };
 
 
@@ -1143,16 +1169,15 @@ static CLD_SC58x_Audio_2_0_w_CDC_Lib_Init_Params uac2_init_params =
  */
 static void uac20_timer_handler(void *pCBParam, uint32_t Event, void *pArg)
 {
-    uint32_t inCycles, outCycles;
-
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
     if (Event == ADI_TMR_EVENT_DATA_INT) {
         cld_time_125us_tick();
     }
 
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 
 /**
@@ -1382,6 +1407,9 @@ CLD_RV uac2_config(UAC2_APP_CONFIG *cfg)
     uac2_state.clock_source.resolution = 0;
 
     /* Copy static parameters from app cfg to CLD init params */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    uac2_init_params.fp_init_usb_phy = cfg->usbPhyInit;
+#endif
 #if defined(__ADSPSC589_FAMILY__)
     if (cfg->port == CLD_USB_0) {
         uac2_init_params.usb_config = CLD_USB0_AUDIO_AND_CDC;
@@ -1546,6 +1574,32 @@ CLD_RV uac2_setTxPktBuffer(void *buf)
 }
 
 /**
+ * Resets IN/OUT stats
+ */
+CLD_RV uac2_reset_stats(UAC2_DIR dir)
+{
+    CLD_Boolean *first;
+    UAC2_ENDPOINT_STATS *stats;
+
+    if (dir == UAC2_DIR_OUT) {
+        stats = uac2_state.cfg.usbOutStats;
+        first = &uac2_state.outPktFirst;
+    } else {
+        stats = uac2_state.cfg.usbInStats;
+        first = &uac2_state.inPktFirst;
+    }
+
+    UAC2_SOUNDCARD_ENTER_CRITICAL();
+    if (stats) {
+        memset(stats, 0, sizeof(*stats));
+    }
+    *first = CLD_TRUE;
+    UAC2_SOUNDCARD_EXIT_CRITICAL();
+
+    return(CLD_SUCCESS);
+}
+
+/**
  * Starts the CLD SC58x USB Audio 2.0 Library.
  */
 CLD_RV uac2_start(void)
@@ -1580,7 +1634,11 @@ CLD_RV uac2_start(void)
     if (cld_rv == CLD_SUCCESS)
     {
         /* Register and enable the USB interrupt ISR functions */
-#if defined(__ADSPSC589_FAMILY__)
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+        if (1) {
+            adi_int_InstallHandler(INTR_USBC0_INT, uac2_usb0_isr, NULL, 1);
+        }
+#elif defined(__ADSPSC589_FAMILY__)
         if (uac2_init_params.usb_config == CLD_USB0_AUDIO_AND_CDC) {
             adi_int_InstallHandler(INTR_USB0_STAT, uac2_usb0_isr, NULL, 1);
             adi_int_InstallHandler(INTR_USB0_DATA, uac2_usb0_isr, NULL, 1);
@@ -1625,7 +1683,11 @@ CLD_RV uac2_stop(void)
     }
 
     /* Unregister and disable the USB interrupt ISR functions */
-#if defined(__ADSPSC589_FAMILY__)
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    if (1) {
+        adi_int_UninstallHandler(INTR_USBC0_INT);
+    }
+#elif defined(__ADSPSC589_FAMILY__)
     if (uac2_init_params.usb_config == CLD_USB0_AUDIO_AND_CDC) {
         adi_int_UninstallHandler(INTR_USB0_STAT);
         adi_int_UninstallHandler(INTR_USB0_DATA);
@@ -1714,7 +1776,7 @@ CLD_RV uac2_run(void)
     }
 
     /* Disable interrupts */
-    adi_rtl_disable_interrupts();
+    UAC2_SOUNDCARD_ENTER_CRITICAL();
 
     /* Apply volume control changes here */
     if (uac2_state.volume_changed == CLD_TRUE) {
@@ -1725,10 +1787,12 @@ CLD_RV uac2_run(void)
     uac2_tx_feedback_data();
 
     /* Poll for USB IN / Tx data */
+#if !defined(__ADSPSC598_FAMILY__) && !defined(__ADSPSC594_FAMILY__)
     uac2_tx_audio_data();
+#endif
 
     /* Re-enable interrupts */
-    adi_rtl_reenable_interrupts();
+    UAC2_SOUNDCARD_EXIT_CRITICAL();
 
     return(CLD_SUCCESS);
 }

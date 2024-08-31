@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "sae_util.h"
+
 /*
  * Alignment == Book-keeping == 2 * sizeof(uint32_t)
  * Do not modify these values without further testing.
@@ -29,9 +31,11 @@
 #define GET_SIZE(ptr)   (GET(ptr) & ~(ALIGNMENT-1))
 #define GET_FREE(ptr)   ((GET(ptr) & 0x1) == 0)
 
-#define BLK_PREV(ptr)   ((uint32_t *)(ptr)-2)
-#define BLK_START(ptr)  ((uint32_t *)(ptr)-1)
-#define BLK_END(ptr)    ((uint32_t *)(ptr+BLK_SIZE(ptr))-2)
+#define BLK_PREV(ptr)   ((uintptr_t)(ptr)-2*sizeof(uint32_t))
+#define BLK_START(ptr)  ((uintptr_t)(ptr)-sizeof(uint32_t))
+#define BLK_END(ptr)    ((uintptr_t)(ptr)+BLK_SIZE(ptr)-2*sizeof(uint32_t))
+
+#define LAST_FREE(ptr)  ((uintptr_t)(ptr)-2*ALIGNMENT)
 
 #define BLK_FREE(ptr)   (GET_FREE(BLK_START(ptr)))
 #define BLK_SIZE(ptr)   (GET_SIZE(BLK_START(ptr)))
@@ -61,7 +65,7 @@ int sae_alloc_init(void *memory, size_t size)
     start = (char *)ALIGN_UP((uintptr_t)memory, ALIGNMENT);
 
     /* Reserve space at the top for specialized block markers */
-    start += ALIGN_UP(2*ALIGNMENT, ALIGNMENT);
+    start += 2 * ALIGNMENT;
 
     /* Size of 0 indicates that this is not the IPC master and
      * that only the heap start address should be stored */
@@ -88,25 +92,45 @@ int sae_alloc_init(void *memory, size_t size)
     /* Allocate a single free block */
     MARK_BLK(start, size, 0);
 
+    /* Mark the "last free" block shortcut */
+    SET(LAST_FREE(start), 0);
+
+    /* Save the heap start address */
     sae_heap_start = start;
 
     return 0;
+}
+
+static inline void sae_alloc_set_last_free(char *split, char *ptr)
+{
+    char *lfree = sae_heap_start + GET(LAST_FREE(sae_heap_start));
+    if ( (split) ||
+         ((split == NULL) && (BLK_SIZE(ptr) > BLK_SIZE(lfree))) ||
+         !BLK_FREE(lfree) ) {
+        SET(LAST_FREE(sae_heap_start), (uintptr_t)(ptr-sae_heap_start));
+    }
 }
 
 void *sae_alloc_malloc(size_t size)
 {
     char *ptr = NULL;
     char *next = NULL;
+    char *lfree = NULL;
     size_t osize;
 
     if (size > 0) {
         size = ALIGN_UP(BSIZE(size), ALIGNMENT);
         ptr = sae_heap_start;
-        while (BLK_SIZE(ptr) > 0) {
-            if (BLK_FREE(ptr) && (BLK_SIZE(ptr) >= size)) {
-                break;
+        lfree = sae_heap_start + GET(LAST_FREE(sae_heap_start));
+        if (BLK_FREE(lfree) && (BLK_SIZE(lfree) >= size)) {
+            ptr = lfree;
+        } else {
+            while (BLK_SIZE(ptr) > 0) {
+                if (BLK_FREE(ptr) && (BLK_SIZE(ptr) >= size)) {
+                    break;
+                }
+                ptr = NEXT(ptr);
             }
-            ptr = NEXT(ptr);
         }
         if (BLK_SIZE(ptr)) {
             if (BLK_SIZE(ptr) >= size + ALIGN_UP(ALIGNMENT+BOOK_KEEPING, ALIGNMENT)) {
@@ -118,6 +142,7 @@ void *sae_alloc_malloc(size_t size)
             } else {
                 MARK_BLK(ptr, BLK_SIZE(ptr), 1);
             }
+            sae_alloc_set_last_free(ptr, next);
         } else {
             ptr = NULL;
         }
@@ -126,7 +151,7 @@ void *sae_alloc_malloc(size_t size)
     return(ptr);
 }
 
-static void *sae_alloc_coalesce(char *ptr)
+static void sae_alloc_coalesce(char *ptr)
 {
     size_t size = BLK_SIZE(ptr);
     char *prev = PREV(ptr);
@@ -135,19 +160,21 @@ static void *sae_alloc_coalesce(char *ptr)
     bool nfree = BLK_FREE(next);
 
     if (!pfree && !nfree) {
-        return(NULL);
+        sae_alloc_set_last_free(NULL, ptr);
+        return;
     }
     if (!pfree && nfree) {
         size += BLK_SIZE(next);
-        MARK_BLK(ptr, size, 0);
     } else if (pfree && !nfree) {
         size += BLK_SIZE(prev);
-        MARK_BLK(prev, size, 0);
+        ptr = prev;
     } else {
         size += BLK_SIZE(prev) + BLK_SIZE(next);
-        MARK_BLK(prev, size, 0);
+        ptr = prev;
     }
-    return(ptr);
+
+    MARK_BLK(ptr, size, 0);
+    sae_alloc_set_last_free(NULL, ptr);
 }
 
 
@@ -179,8 +206,6 @@ bool sae_alloc_checkheap(void)
     }
     return(true);
 }
-
-#include "sae_util.h"
 
 bool sae_safeHeapInfo(SAE_HEAP_INFO *heapInfo)
 {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -36,6 +36,7 @@
 #define UART_STDIO_STDERR_FD     2
 
 static sUART *stdioUartHandle;
+static int stdioUartMode;
 
 static int uart_stdio_dev_init(struct DevEntry *deventry)
 {
@@ -65,7 +66,7 @@ static int uart_stdio_dev_write(int fh, unsigned char *ptr, int len)
 
     b = 0;
     for (i = 0; i < len; i++) {
-        if (ptr[i] == '\n') {
+        if ((ptr[i] == '\n') && (stdioUartMode == UART_STDIO_MODE_COOKED)) {
             buf[b++] = '\r';
         }
         buf[b++] = *(ptr+i);
@@ -194,7 +195,16 @@ DevEntry_t DevDrvTable[MAXDEV] = {
  **********************************************************************/
 static int uart_stdio_ioctl(int fildes, int request, va_list varg_list)
 {
-    return(-1);
+    int result = -1;
+
+    if (request == UART_STDIO_MODE_SET) {
+        if (varg_list != NULL) {
+            stdioUartMode = *(int *) varg_list;
+            result = 0;
+        }
+    }
+
+    return(result);
 }
 
 struct DevEntry_Extension uart_stdio_extension = {
@@ -232,8 +242,9 @@ DevEntry_t DevDrvTable[MAXDEV] = {
  **********************************************************************/
 void uart_stdio_init(sUART *uart)
 {
-#if defined(__ADSPARM__)
     stdioUartHandle = uart;
+    stdioUartMode = UART_STDIO_MODE_RAW;
+#if defined(__ADSPARM__)
     set_default_io_device(UART_STDIO_DEV);
     /*
      * newlib line buffering is broken in CCES 2.8.3 (latest as
@@ -244,8 +255,6 @@ void uart_stdio_init(sUART *uart)
      *   https://github.com/espressif/esp-idf/issues/44
      */
     setvbuf(stdout, NULL, _IONBF, 0);
-#else
-    stdioUartHandle = uart;
 #endif
 }
 
@@ -262,3 +271,9 @@ void uart_stdio_set_read_timeout(int timeout)
     uart_setTimeouts(stdioUartHandle,
         timeout, UART_SIMPLE_TIMEOUT_NO_CHANGE);
 }
+
+void uart_stdio_set_mode(int mode)
+{
+    stdioUartMode = mode;
+}
+

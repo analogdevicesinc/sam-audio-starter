@@ -64,8 +64,6 @@
 #include <stdio.h>
 #include <assert.h>
 
-#define FEATURE_CPU_LOAD
-
 #ifdef FEATURE_CPU_LOAD
 #include "cpu_load.h"
 #endif

@@ -12,8 +12,11 @@
 #ifndef _shell_printf_h
 #define _shell_printf_h
 
+#include <stdarg.h>
+
 #include "shell.h"
 
 int shell_printf(SHELL_CONTEXT *ctx, const char* fmt, ...);
+int shell_vprintf(SHELL_CONTEXT *ctx, const char *format, va_list ap);
 
 #endif

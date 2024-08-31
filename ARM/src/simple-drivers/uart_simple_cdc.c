@@ -38,6 +38,7 @@
 #include "cdc.h"
 
 #define UART_BUFFER_SIZE        (16384)
+#define UART_DMA_BUFFER_SIZE    (512)
 #define UART_END_CDC            (UART1)
 
 typedef enum UART_SIMPLE_INT_RESULT
@@ -58,6 +59,7 @@ struct sUART {
 
     // UART transmit buffer
     uint8_t tx_buffer[UART_BUFFER_SIZE];
+    uint8_t tx_dma_buffer[UART_DMA_BUFFER_SIZE] __attribute__ ((aligned(4)));
     volatile uint16_t tx_buffer_readptr;
     uint16_t tx_buffer_writeptr;
     uint16_t tx_size;
@@ -112,9 +114,12 @@ UART_SIMPLE_INT_RESULT _uart_cdc_isr_readFromTXBuffer(sUART *uart, uint8_t *val)
     } else {
         uart->tx_size = uart->tx_buffer_writeptr - uart->tx_buffer_readptr;
     }
+    uart->tx_size = (uart->tx_size > UART_DMA_BUFFER_SIZE) ?
+        UART_DMA_BUFFER_SIZE : uart->tx_size;
 
     /* Send out the chunk */
-    ok = cdc_tx_serial_data(uart->tx_size, &uart->tx_buffer[uart->tx_buffer_readptr], 100);
+    memcpy(uart->tx_dma_buffer, &uart->tx_buffer[uart->tx_buffer_readptr], uart->tx_size);
+    ok = cdc_tx_serial_data(uart->tx_size, uart->tx_dma_buffer, 100);
 
     /* Return the result */
     ret = (ok == CLD_USB_TRANSMIT_SUCCESSFUL) ?
@@ -262,12 +267,11 @@ UART_SIMPLE_RESULT uart_cdc_read(sUART *uart, uint8_t *in, uint8_t *inLen)
     return(result);
 }
 
-
 UART_SIMPLE_RESULT uart_cdc_write(sUART *uart, uint8_t *out, uint8_t *outLen)
 {
     UART_SIMPLE_RESULT result = UART_SIMPLE_SUCCESS;
     UART_SIMPLE_INT_RESULT intResult;
-    int i;
+    int i, size, remaining;
     bool full;
     bool goToSleep;
     bool transmitting;
@@ -282,7 +286,8 @@ UART_SIMPLE_RESULT uart_cdc_write(sUART *uart, uint8_t *out, uint8_t *outLen)
     }
 #endif
 
-    for (i = 0; i < *outLen; i++) {
+    i = 0; remaining = *outLen;
+    while (remaining) {
 
 #ifdef FREE_RTOS
         UART_ENTER_CRITICAL();
@@ -310,7 +315,15 @@ UART_SIMPLE_RESULT uart_cdc_write(sUART *uart, uint8_t *out, uint8_t *outLen)
 #endif
 
         UART_ENTER_CRITICAL();
-        uart->tx_buffer[uart->tx_buffer_writeptr++] = out[i];
+        if (uart->tx_buffer_writeptr >= uart->tx_buffer_readptr) {
+            size = UART_BUFFER_SIZE - uart->tx_buffer_writeptr;
+        } else {
+            size = uart->tx_buffer_readptr - uart->tx_buffer_writeptr;
+        }
+        size = (size > remaining) ? remaining : size;
+        memcpy(&uart->tx_buffer[uart->tx_buffer_writeptr], &out[i], size);
+        remaining -= size; i += size;
+        uart->tx_buffer_writeptr += size;
         if (uart->tx_buffer_writeptr >= UART_BUFFER_SIZE) {
             uart->tx_buffer_writeptr = 0;
         }

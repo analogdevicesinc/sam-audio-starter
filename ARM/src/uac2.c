@@ -9,6 +9,29 @@
  * software may not be used except as expressly authorized under the license.
  */
 
+/*
+ * WARNING: The CLD library, and related components, require the following
+ *          uncached memory sections:
+ *
+ *          SECTIONS {
+ *           .l3_uncached :
+ *            {
+ *              *(.l3_uncached_code)
+ *              *(.l3_uncached_data)
+ *              *(.l3_uncached_bss)
+ *              *(.usb_lib_uncached)
+ *            } >MEM_L3_UNCACHED = 0
+ *          }
+ *
+ * Failure to provide these sections will result in USB enumeration errors.
+ *
+ * Review the following files for implemention details:
+ *
+ *   build/ARM_XXX.ld
+ *   ARM/src/apt_XXX.c
+ *
+ */
+
 #include <stdint.h>
 
 /* Kernel includes. */
@@ -24,10 +47,18 @@
 
 /* Application includes */
 #include "context.h"
-#include "umm_malloc.h"
 #include "uac2.h"
 #include "util.h"
 #include "usb_audio.h"
+#include "init.h"
+
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+static CLD_RV usbPhyInit(void)
+{
+    usb_phy_init();
+    return(CLD_SUCCESS);
+}
+#endif
 
 /* UAC2 soundcard management task */
 portTASK_FUNCTION(uac2Task, pvParameters)
@@ -80,7 +111,11 @@ portTASK_FUNCTION(uac2Task, pvParameters)
     bufferTrackInit(getTimeStamp);
 
     /* Configure UAC2 application settings */
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    context->uac2cfg.usbPhyInit = usbPhyInit;
+#else
     context->uac2cfg.port = CLD_USB_0;
+#endif
     context->uac2cfg.usbSampleRate = SYSTEM_SAMPLE_RATE;
     context->uac2cfg.usbInChannels = cfg->usbInChannels;
     context->uac2cfg.usbInWordSizeBits = cfg->usbWordSize * 8;

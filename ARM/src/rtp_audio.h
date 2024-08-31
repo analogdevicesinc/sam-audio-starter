@@ -17,10 +17,10 @@
 
 void rtp_audio_init(APP_CONTEXT *context);
 
-SAE_MSG_BUFFER *xferRtpTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferRtpRxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
-SAE_MSG_BUFFER *xferRtpRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferRtpTxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
 #endif

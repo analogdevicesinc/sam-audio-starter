@@ -420,7 +420,7 @@ typedef struct _ADI_A2B_CMDLIST_OVERRIDE_INFO {
     uint8_t I2SCFG;
     /** True if Master DNSLOTS register should be overridden */
     bool DNSLOTS_override;
-    /** Master DNSLOTS override value */
+    /** Master I2SCFG override value */
     uint8_t DNSLOTS;
     /** True if Master UPSLOTS register should be overridden */
     bool UPSLOTS_override;

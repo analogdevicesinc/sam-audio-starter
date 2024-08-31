@@ -703,6 +703,20 @@ void *umm_malloc_aligned( size_t size, size_t alignment )
   return (umm_malloc_heap_aligned( UMM_DEFAULT_HEAP, size, alignment ));
 }
 
+void *umm_calloc_aligned( size_t num, size_t item_size, size_t alignment ) {
+  return (umm_calloc_heap_aligned( UMM_DEFAULT_HEAP, num, item_size, alignment ));
+}
+
+void *umm_calloc_heap_aligned(umm_heap_t heap, size_t num, size_t item_size, size_t alignment ) {
+  void *ret;
+
+  ret = umm_malloc_heap_aligned(heap, (size_t)(item_size * num), alignment);
+  if (ret)
+      memset(ret, 0x00, (size_t)(item_size * num));
+
+  return ret;
+}
+
 void umm_free_heap_aligned( umm_heap_t heap, void *ptr )
 {
     ALIGNED *aligned;

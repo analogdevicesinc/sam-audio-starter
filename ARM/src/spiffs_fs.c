@@ -148,6 +148,8 @@ void spiffs_unmount(spiffs *fs, FLASH_INFO **fi)
         SPIFFS_unmount(fs);
     }
 
+    memset(fs, 0, sizeof(*fs));
+
 #ifdef FREE_RTOS
     if (FS->lock) {
         vSemaphoreDelete(FS->lock);

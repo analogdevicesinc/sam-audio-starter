@@ -10,3 +10,4 @@ SHARC1/
 *.map
 .cflags*
 .lobjs*
+*.log

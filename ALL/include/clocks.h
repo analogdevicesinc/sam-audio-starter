@@ -19,7 +19,7 @@
 #define SCLK0        (CCLK / 4)
 
 /* Compute OCLK divisor */
-#define OCLK         (166000000)
+#define OCLK         (225000000)
 #define OCLK_DIV     (CCLK / OCLK)
 
 /* Insure CGU_TS_CLK = SYSCLK / (2^CGU_TS_DIV) below */

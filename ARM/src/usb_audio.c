@@ -31,16 +31,11 @@ static bool txPreRoll = true;
  * Optionally set 'nextData' to the next transfer buffer if using
  * application buffers.
  *
+ * ISR CPU cycles are tracked in uac2_soundcard.c
  */
 uint16_t uac2Rx(void *data, void **nextData, uint16_t rxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    uint32_t inCycles, outCycles;
-
-    UNUSED(context);
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
 
     unsigned samples;
     unsigned sampleSizeBytes;
@@ -72,10 +67,6 @@ uint16_t uac2Rx(void *data, void **nextData, uint16_t rxSize, void *usrPtr)
         context->uac2stats.rx.usbRxOverRun++;
     }
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
-
     return(rxSize);
 }
 
@@ -104,17 +95,13 @@ uint16_t uac2Rx(void *data, void **nextData, uint16_t rxSize, void *usrPtr)
  * Optionally set 'nextData' to the next transfer buffer if using
  * application buffers.  This buffer will go out immediately upon return
  * to satisfy the current request.
+ *
+ * ISR CPU cycles are tracked in uac2_soundcard.c
  */
 uint16_t uac2Tx(void *data, void **nextData,
     uint16_t minSize, uint16_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    uint32_t inCycles, outCycles;
-
-    UNUSED(context);
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
 
     bool sampleRateUpdate;
     unsigned samples;
@@ -123,7 +110,7 @@ uint16_t uac2Tx(void *data, void **nextData,
     unsigned uacFrames;
     unsigned targetRingFrames;
     int error;
-    unsigned size;
+    unsigned size = (minSize + maxSize) / 2;
 
     /* Adjustment tracking variables */
     static unsigned adjustCountCurr;
@@ -160,7 +147,8 @@ uint16_t uac2Tx(void *data, void **nextData,
     if (txPreRoll) {
         if (ringFrames < targetRingFrames) {
             txPreRoll = true;
-            return(0);
+            memset(data, 0, size);
+            return(size);
         } else {
             bufferTrackReset(UAC2_IN_BUFFER_TRACK_IDX);
             adjustCountCurr = 0;
@@ -172,7 +160,8 @@ uint16_t uac2Tx(void *data, void **nextData,
         if (ringFrames < uacFrames) {
             context->uac2stats.tx.usbTxUnderRun++;
             txPreRoll = true;
-            return(0);
+            memset(data, 0, size);
+            return(size);
         }
     }
 
@@ -220,46 +209,26 @@ uint16_t uac2Tx(void *data, void **nextData,
     /* Return the size in bytes to the soundcard service */
     size = uacFrames * context->cfg.usbInChannels * sampleSizeBytes;
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
-
     return(size);
 }
 
 /*
  * This callback is called whenever a sample rate update is requested
  * by the host.  This callback runs in an ISR context.
+ *
+ * ISR CPU cycles are tracked in uac2_soundcard.c
  */
 uint32_t uac2RateFeedback(void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    uint32_t inCycles, outCycles;
     uint32_t rate = SYSTEM_SAMPLE_RATE;
 
     UNUSED(context);
-
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
 
     rate = bufferTrackGetSampleRate(UAC2_OUT_BUFFER_TRACK_IDX);
     if (rate == 0) {
         rate = SYSTEM_SAMPLE_RATE;
     }
-
-    /*
-     * Older Windows 10 versions must assume the feedback is for a low-speed
-     * bInterval of 1mS and do not accept standard feeback values from the CLD driver
-     * on high-speed connections when the bInterval is 125uS.  Multiply
-     * the rate feedback by 8 to compensate.
-     */
-     if (context->cfg.usbRateFeedbackHack) {
-        rate *= 8;
-    }
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
 
     return(rate);
 }
@@ -267,6 +236,8 @@ uint32_t uac2RateFeedback(void *usrPtr)
 /*
  * This callback is called whenever the IN or OUT endpoint is enabled
  * or disabled.  This callback runs in an ISR context.
+ *
+ * ISR CPU cycles are tracked in uac2_soundcard.c
  */
 void uac2EndpointEnabled(UAC2_DIR dir, bool enable, void *usrPtr)
 {
@@ -274,63 +245,49 @@ void uac2EndpointEnabled(UAC2_DIR dir, bool enable, void *usrPtr)
 
     if (dir == UAC2_DIR_OUT) {
         if (enable) {
-            memset(&context->uac2stats.rx, 0, sizeof(context->uac2stats.rx));
+            uac2_reset_stats(dir);
         } else {
             PaUtil_FlushRingBuffer(context->uac2OutRx);
+            bufferTrackReset(UAC2_OUT_BUFFER_TRACK_IDX);
         }
         context->uac2RxEnabled = enable;
     } else if (dir == UAC2_DIR_IN) {
         if (enable) {
-            memset(&context->uac2stats.tx, 0, sizeof(context->uac2stats.tx));
+            uac2_reset_stats(dir);
             txPreRoll = true;
         } else {
             PaUtil_FlushRingBuffer(context->uac2InTx);
+            bufferTrackReset(UAC2_IN_BUFFER_TRACK_IDX);
         }
         context->uac2TxEnabled = enable;
     }
 }
 
+__attribute__ ((section(".l3_cached_data")))
+static SYSTEM_AUDIO_TYPE usbTxBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
+
+__attribute__ ((section(".l3_cached_data")))
+static SYSTEM_AUDIO_TYPE usbRxBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 
 /*
- * Transfers the USB Rx Audio (OUT Endpoint)
- *
- * WARNING: The USB stat and data ISRs run at a higher priority than
- *          serviceUsbOutAudio() and will nest.  All calls to bufferTrackXXX()
- *          must be protected in ISR critical sections.
- *
+ * The pointer returned will be a source buffer
  */
-SAE_MSG_BUFFER * xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferUsbRxAudio(APP_CONTEXT *context, void **audio, CLOCK_DOMAIN cd)
 {
     unsigned samples;
     unsigned frames;
     static bool rxPreRoll = true;
     UBaseType_t isrStat;
-    IPC_MSG *ipcMsg;
-    IPC_MSG_AUDIO *audio;
     CLOCK_DOMAIN myCd;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_USB_RX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_USB_RX);
 
-    ipcMsg = sae_getMsgBufferPayload(msg);
-    audio = &ipcMsg->audio;
-    audio->clockDomain = myCd;
-
-#if 1
-    /* Sanity check the request */
-    if ( (audio->numChannels != USB_DEFAULT_OUT_AUDIO_CHANNELS) ||
-         (audio->wordSize != context->cfg.usbWordSize) )
-    {
-        return(NULL);
-    }
-#endif
-
     samples = PaUtil_GetRingBufferReadAvailable(context->uac2OutRx);
-    frames = samples / USB_DEFAULT_OUT_AUDIO_CHANNELS;
+    frames = samples / context->cfg.usbOutChannels;
 
     if (rxPreRoll) {
         /* Must have at least USB_OUT_RING_BUFF_FILL of data waiting */
@@ -344,7 +301,7 @@ SAE_MSG_BUFFER * xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
         /* If audio is playing and the ring buffer drops below a
          * requested frame of data, restart the pre-roll process
          */
-        if (frames < audio->numFrames) {
+        if (frames < SYSTEM_BLOCK_SIZE) {
             isrStat = taskENTER_CRITICAL_FROM_ISR();
             bufferTrackReset(UAC2_OUT_BUFFER_TRACK_IDX);
             taskEXIT_CRITICAL_FROM_ISR(isrStat);
@@ -374,7 +331,7 @@ SAE_MSG_BUFFER * xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
             bufferTrackCalculateSampleRate(
                 UAC2_OUT_BUFFER_TRACK_IDX,
                 USB_OUT_RING_BUFF_FILL,
-                USB_DEFAULT_OUT_AUDIO_CHANNELS,
+                context->cfg.usbOutChannels,
                 SYSTEM_SAMPLE_RATE
             );
         }
@@ -383,57 +340,39 @@ SAE_MSG_BUFFER * xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
         /* Get a block of USB OUT (Rx) audio from the ring buffer */
         PaUtil_ReadRingBuffer(
             context->uac2OutRx,
-            audio->data, audio->numChannels * audio->numFrames
+            usbRxBuffer, context->cfg.usbOutChannels * SYSTEM_BLOCK_SIZE
         );
 
     } else {
         /* Play silence while prerolling */
         memset(
-            audio->data,
+            usbRxBuffer,
             0,
-            audio->numChannels * audio->numFrames * audio->wordSize
+            context->cfg.usbOutChannels * context->cfg.usbWordSize * SYSTEM_BLOCK_SIZE
         );
     }
 
-    return(msg);
+    *audio = usbRxBuffer;
+
+    return(1);
 }
 
 /*
- * Transfers USB Tx audio (IN Endpoint)
- *
- * WARNING: The USB data transfer ISRs run at a higher priority than
- *          serviceUsbIn() and will nest.  All calls to bufferTrackXXX()
- *          must be protected in critical sections.
- *
+ * The pointer returned will be a sink buffer
  */
-SAE_MSG_BUFFER *xferUsbTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferUsbTxAudio(APP_CONTEXT *context, void **audio, CLOCK_DOMAIN cd)
 {
+
     unsigned samples;
     unsigned framesAvailable;
     UBaseType_t isrStat;
-    IPC_MSG *ipcMsg;
-    IPC_MSG_AUDIO *audio;
     CLOCK_DOMAIN myCd;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_USB_TX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_USB_TX);
-
-    ipcMsg = sae_getMsgBufferPayload(msg);
-    audio = &ipcMsg->audio;
-    audio->clockDomain = myCd;
-
-#if 1
-    /* Sanity check the request */
-    if ( (audio->numChannels != USB_DEFAULT_IN_AUDIO_CHANNELS) ||
-         (audio->wordSize != context->cfg.usbWordSize) )
-    {
-        return(NULL);
-    }
-#endif
 
     if (context->uac2TxEnabled) {
 
@@ -451,19 +390,14 @@ SAE_MSG_BUFFER *xferUsbTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
          * frames available in the ring buffer.
          */
         samples = PaUtil_GetRingBufferWriteAvailable(context->uac2InTx);
-        framesAvailable = samples / USB_DEFAULT_IN_AUDIO_CHANNELS;
+        framesAvailable = samples / context->cfg.usbInChannels;
 
         /* Put a block of USB IN (Tx) audio into the ring buffer */
-        if (framesAvailable >= audio->numFrames ) {
+        if (framesAvailable >= SYSTEM_BLOCK_SIZE ) {
 
             PaUtil_WriteRingBuffer(
                 context->uac2InTx,
-                audio->data, audio->numChannels * audio->numFrames
-            );
-
-            /* Notify the UAC2 task that data is available */
-            xTaskNotifyFromISR(context->uac2TaskHandle,
-                UAC2_TASK_AUDIO_DATA_READY, eSetValueWithoutOverwrite, NULL
+                usbTxBuffer, context->cfg.usbInChannels * SYSTEM_BLOCK_SIZE
             );
 
         } else {
@@ -471,6 +405,10 @@ SAE_MSG_BUFFER *xferUsbTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
         }
     }
 
-    return(msg);
-}
+    memset(usbTxBuffer, 0,
+        context->cfg.usbInChannels * context->cfg.usbWordSize * SYSTEM_BLOCK_SIZE);
 
+    *audio = usbTxBuffer;
+
+    return(1);
+}

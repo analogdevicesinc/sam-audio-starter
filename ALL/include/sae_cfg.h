@@ -40,6 +40,7 @@
 
 /* Minimal ARM and SHARC global interrupt disable/enable. */
 #if defined (__ADSPARM__)
+    #include "adi/builtins.h"
     #define SAE_ENTER_CRITICAL()  __builtin_disable_interrupts()
     #define SAE_EXIT_CRITICAL()   __builtin_enable_interrupts()
 #elif defined(__ADSP21000__)

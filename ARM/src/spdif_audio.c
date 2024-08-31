@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -9,61 +9,48 @@
  * software may not be used except as expressly authorized under the license.
  */
 
-#include <stdint.h>
-#include <stdbool.h>
+#include <string.h>
 
 #include "context.h"
 #include "spdif_audio.h"
 #include "cpu_load.h"
+#include "process_audio.h"
 #include "clock_domain.h"
-#include "sharc_audio.h"
-
-#include "sae.h"
+#include "route.h"
 
 void spdifAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->spdifAudioOut[0]) {
-        msg = context->spdifMsgOut[0];
-    } else if (buffer == context->spdifAudioOut[1]) {
-        msg = context->spdifMsgOut[1];
-    }
+    /* Clear the contents */
+    memset(buffer, 0, maxSize);
 
-    /* Indicate SPDIF "out" audio ready */
-    sharcAudio(context, CLOCK_DOMAIN_BITM_SPDIF_OUT, msg, false, false);
+    /* Process audio */
+    processAudio(context, CLOCK_DOMAIN_BITM_SPDIF_OUT, STREAM_ID_SPDIF_OUT,
+        SPDIF_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, true,
+        false, false);
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 
-void spdifAudioIn(void *buffer, uint32_t size, void *usrPtr)
+void spdifAudioIn(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->spdifAudioIn[0]) {
-        msg = context->spdifMsgIn[0];
-    } else if (buffer == context->spdifAudioIn[1]) {
-        msg = context->spdifMsgIn[1];
-    }
+    /* Process audio */
+    processAudio(context, CLOCK_DOMAIN_BITM_SPDIF_IN, STREAM_ID_SPDIF_IN,
+        SPDIF_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, false,
+        false, true);
 
-    /* Indicate SPDIF "in" audio ready */
-    sharcAudio(context, CLOCK_DOMAIN_BITM_SPDIF_IN, msg, false, true);
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }

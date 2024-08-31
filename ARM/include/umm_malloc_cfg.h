@@ -1,5 +1,6 @@
 /*
  * Begin SAM specific configuration for umm_malloc
+ * This file has been modified by Analog Devices, Inc.
  */
 
 #ifndef _UMM_MALLOC_CFG_H

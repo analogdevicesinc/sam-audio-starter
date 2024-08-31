@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -14,11 +14,16 @@
 #include "task.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
+#include <services/int/adi_gic.h>
 #include <runtime/int/interrupt.h>
 #include <adi_osal.h>
 
-#define MAX_THREAD_SLOTS 32
+#define OSAL_MINIMAL_MAX_THREAD_SLOTS 32
+
+/* Uncomment to default IRQ priority within FreeRTOS range */
+//#define OSAL_MINIMAL_SET_IRQ_PRIO
 
 /*
  * WARNING:
@@ -51,6 +56,7 @@ static UBaseType_t _osalEnterCriticalRegionValue;
 *****************************************************************************/
 static inline bool _adi_osal_IsCurrentLevelISR( void )
 {
+#if defined (__ADSPCORTEXA5__)
     uint32_t local_cpsr;
     uint32_t mode;
 
@@ -61,6 +67,19 @@ static inline bool _adi_osal_IsCurrentLevelISR( void )
         return false;
     else
         return true;
+#elif defined (__ADSPCORTEXA55__)
+    uint32_t icc_rpr_el1;
+
+    /* Read from ICC_RPR_EL1 (Running Priority Register). */
+    asm ("MRS %0, s3_0_c12_c11_3\n" : "=r" (icc_rpr_el1) );
+
+    /* If there are no active interrupts on the CPU interface the value
+     * of ICC_RPR_EL1 is the Idle priority 0xff.
+     */
+    return (icc_rpr_el1 != 0xffu);
+#else
+    #error "Unsupported processor!"
+#endif
 }
 
 /*****************************************************************************
@@ -311,8 +330,8 @@ ADI_OSAL_STATUS adi_osal_ThreadSlotAcquire(
     int threadSlots;
 
     threadSlots =
-        configNUM_OSAL_TLS_POINTERS < MAX_THREAD_SLOTS ?
-        configNUM_OSAL_TLS_POINTERS : MAX_THREAD_SLOTS;
+        configNUM_OSAL_TLS_POINTERS < OSAL_MINIMAL_MAX_THREAD_SLOTS ?
+        configNUM_OSAL_TLS_POINTERS : OSAL_MINIMAL_MAX_THREAD_SLOTS;
 
     vTaskSuspendAll();
 
@@ -373,3 +392,65 @@ ADI_OSAL_STATUS adi_osal_ThreadSlotGetValue(
     return ADI_OSAL_SUCCESS;
 }
 
+/*****************************************************************************
+    WARNING: THIS IS NOT THE ORIGINAL ADI FreeRTOS OSAL FUNCTION!!
+*****************************************************************************/
+ADI_OSAL_STATUS adi_osal_Init(void)
+{
+    return ADI_OSAL_SUCCESS;
+}
+
+/*****************************************************************************
+ * Architecture functions found in adi_osal_arch_c.c
+ ****************************************************************************/
+
+/*****************************************************************************
+    WARNING: THIS IS NOT THE ORIGINAL ADI FreeRTOS OSAL FUNCTION!!
+*****************************************************************************/
+ADI_OSAL_STATUS adi_osal_InstallHandler(
+    uint32_t iid, ADI_OSAL_HANDLER_PTR highLevelHandler, void* handlerArg)
+{
+    int32_t index;
+    index = adi_rtl_register_dispatched_handler (
+        iid, (adi_dispatched_handler_t) highLevelHandler, handlerArg
+    );
+    if (index < 0) {
+        return ADI_OSAL_FAILED;
+    }
+#ifdef OSAL_MINIMAL_SET_IRQ_PRIO
+    ADI_GIC_RESULT result;
+    result = adi_gic_SetIntPriority(iid,
+        configMAX_API_CALL_INTERRUPT_PRIORITY << portPRIORITY_SHIFT));
+    if (result != ADI_GIC_SUCCESS) {
+        adi_rtl_unregister_dispatched_handler(iid);
+        return ADI_OSAL_FAILED;
+    }
+#endif
+    return ADI_OSAL_SUCCESS;
+}
+
+/*****************************************************************************
+    WARNING: THIS IS NOT THE ORIGINAL ADI FreeRTOS OSAL FUNCTION!!
+*****************************************************************************/
+ADI_OSAL_STATUS adi_osal_UninstallHandler(uint32_t iid)
+{
+
+    int32_t index;
+    index = adi_rtl_unregister_dispatched_handler (iid);
+    if (index < 0) {
+        return ADI_OSAL_FAILED;
+    }
+    return ADI_OSAL_SUCCESS;
+}
+
+/*****************************************************************************
+    WARNING: THIS IS NOT THE ORIGINAL ADI FreeRTOS OSAL FUNCTION!!
+*****************************************************************************/
+ADI_OSAL_STATUS _adi_osal_HeapInstall(uint32_t *pHeapMemory, uint32_t nHeapMemorySize)
+{
+    ADI_OSAL_STATUS eRetStatus = ADI_OSAL_FAILED;
+    if (pHeapMemory == NULL) {
+        eRetStatus = ADI_OSAL_SUCCESS;
+    }
+    return (eRetStatus);
+}

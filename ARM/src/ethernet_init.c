@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -11,6 +11,7 @@
 
 /* Standard includes. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 
@@ -28,6 +29,7 @@
 #include "lwip/tcpip.h"
 #include "lwip/dhcp.h"
 #include "netif/etharp.h"
+#include "lwip/apps/mdns.h"
 
 /* ADI Ethernet lwIP netif includes */
 #include "lwip_adi_ether_netif.h"
@@ -37,10 +39,16 @@
 #include "util.h"
 
 /***********************************************************************
+ * Features
+ **********************************************************************/
+
+/***********************************************************************
  * Ethernet variables
  **********************************************************************/
-static uint8_t macaddr[6] = { 0x02, 0x04, 0x06, 0x08, 0x10, 0x12 };
-static char hostname[32];
+
+/***********************************************************************
+ * Forward declarations
+ **********************************************************************/
 
 /***********************************************************************
  * Misc variables
@@ -63,10 +71,12 @@ static void log_addr(char *name, ip_addr_t *net_addr)
         ip4_addr3(net_addr), ip4_addr4(net_addr));
 }
 
-static void ethernet_ready(APP_CONTEXT *context, ip_addr_t *ip_addr)
+static void log_mac(char *name, uint8_t *macAddr)
 {
-    ip4addr_ntoa_r(ip_addr, context->eth0_addr, sizeof(context->eth0_addr));
-    xEventGroupSetBits(context->ethernetEvents, ETHERNET_READY);
+    syslog_printf(
+        "%s: %02x:%02x:%02x:%02x:%02x:%02x", name,
+        macAddr[0], macAddr[1], macAddr[2],
+        macAddr[3], macAddr[4], macAddr[5]);
 }
 
 #if LWIP_NETIF_STATUS_CALLBACK
@@ -75,20 +85,26 @@ static void netif_status_callback(struct netif *netif)
     struct adi_ether_netif *adi_ether = netif->state;
     APP_CONTEXT *context = (APP_CONTEXT *)adi_ether->usrPtr;
 
+    UNUSED(context);
+
     /* Make sure there's a sane address */
     if (ip_addr_get_ip4_u32(&netif->ip_addr) == 0x00000000) {
         return;
     }
-    log_addr("IP Address", &netif->ip_addr);
-    log_addr("Gateway", &netif->gw);
-    log_addr("Netmask", &netif->netmask);
 
-    /* Now that we have an IP address, start Ethernet related tasks if
-     * DHCP is enabled
-     */
-    if (context->cfg.static_ip == false) {
-        ethernet_ready(context, &netif->ip_addr);
-    }
+    /* Tell mDNS */
+    mdns_resp_netif_settings_changed(netif);
+
+    /* Log the settings */
+    syslog_printf(
+        "Ethernet %c%c%u:",
+        netif->name[0], netif->name[1], netif->num
+    );
+    syslog_printf("  Hostname: %s", adi_ether->hostName);
+    log_mac("  MAC", adi_ether->ethAddr.addr);
+    log_addr("  IP Address", &netif->ip_addr);
+    log_addr("  Gateway", &netif->gw);
+    log_addr("  Netmask", &netif->netmask);
 }
 #endif
 
@@ -98,30 +114,42 @@ static void netif_link_status_callback(struct netif *netif)
     struct adi_ether_netif *adi_ether = netif->state;
     APP_CONTEXT *context = (APP_CONTEXT *)adi_ether->usrPtr;
 
-    if (netif->flags & NETIF_FLAG_LINK_UP) {
-        /*
-         * Start Ethernet related tasks as soon as the link is up with
-         * a static IP.
-         */
-        xEventGroupSetBits(context->ethernetEvents, ETHERNET_LINK_UP);
-        if (context->cfg.static_ip == true) {
-            ethernet_ready(context, &netif->ip_addr);
-        }
-        syslog_print("Ethernet link up\n");
-    } else {
-        syslog_print("Ethernet link down\n");
-    }
+    UNUSED(context);
+
+    syslog_printf(
+        "Ethernet %c%c%u link %s\n",
+        netif->name[0], netif->name[1], netif->num,
+        netif_is_link_up(netif) ? "up" : "down"
+    );
 }
 #endif
 
 /***********************************************************************
  * MAC Address generation
  **********************************************************************/
+#include "flash.h"
+#include "crc16.h"
 void makeMACAddr(APP_CONTEXT *context, uint8_t *macAddr)
 {
+    static unsigned int seed = 0;
+    unsigned int s;
+    int i;
+
+    /* Generate a random seed from the flash UID */
+    if (seed == 0) {
+        seed = crc16_ccitt(
+            context->flashHandle->UID, sizeof(context->flashHandle->UID)
+        );
+    }
+
     /*
-     * Do something clever here to generate a unique MAC address
+     * Generate a repeatable random MAC address.  It will also be used
+     * for mDNS IP address so limit each octet to 254
      */
+    s = seed; seed++;
+    for (i = 0; i < 6; i++) {
+        macAddr[i] = (rand_r(&s) & 0xFF) % 254;
+    }
 
     /* https://en.wikipedia.org/wiki/MAC_address */
 
@@ -130,80 +158,103 @@ void makeMACAddr(APP_CONTEXT *context, uint8_t *macAddr)
 
     /* Set as unicast */
     macAddr[0] &= ~0x01;
-
-    /* Log to the syslog */
-    syslog_printf(
-        "Ethernet MAC: %02x:%02x:%02x:%02x:%02x:%02x",
-        macAddr[0], macAddr[1], macAddr[2],
-        macAddr[3], macAddr[4], macAddr[5]
-    );
-
 }
 
 /***********************************************************************
  * lwIP init
  **********************************************************************/
-void ethernet_init(APP_CONTEXT *context)
+void ethernet_init(APP_CONTEXT *context, ETH *eth, ETH_CFG *cfg)
 {
-    ip_addr_t sam_ip_addr, gw_addr, netmask;
-
-    /* Set IP addresses */
-    net_aton((char *)context->cfg.ip_addr, &sam_ip_addr);
-    net_aton((char *)context->cfg.gateway_addr, &gw_addr);
-    net_aton((char *)context->cfg.netmask, &netmask);
+    ip_addr_t ip_addr, gw_addr, netmask;
+    static bool first = true;
+    char mdns_ip_addr[32];
 
     /* Initialize lwIP and the TCP/IP subsystem */
-    tcpip_init(NULL, NULL);
+    if (first) {
+        tcpip_init(NULL, NULL);
+    }
+
+    /* Generate a unique MAC address and hostname */
+    makeMACAddr(context, eth->macaddr);
+
+    sprintf(eth->hostname,
+        "%s-%02X%02X%02X%02X%02X%02X", cfg->base_hostname,
+        eth->macaddr[0], eth->macaddr[1], eth->macaddr[2],
+        eth->macaddr[3], eth->macaddr[4], eth->macaddr[5]
+    );
+
+    /* Set IP addresses */
+    if (cfg->static_ip) {
+        net_aton((char *)cfg->ip_addr, &ip_addr);
+        net_aton((char *)cfg->gateway_addr, &gw_addr);
+        net_aton((char *)cfg->netmask, &netmask);
+    } else {
+        /* Set initial mDNS IP/GW/MASK address if not static */
+        sprintf(mdns_ip_addr,
+            "169.254.%d.%d", eth->macaddr[4], eth->macaddr[5]
+        );
+        net_aton(mdns_ip_addr, &ip_addr);
+        net_aton("0.0.0.0", &gw_addr);
+        net_aton("255.255.0.0", &netmask);
+    }
 
     /* Allocate a new ADI Ethernet network interface */
-    context->adi_ether = adi_ether_netif_new(context);
+    eth->adi_ether = adi_ether_netif_new(context);
 
-    /* Generate a unique MAC address */
-    makeMACAddr(context, macaddr);
-
-    /* Configure the user parameters (hostname, EMAC port, MAC address) */
-    sprintf(hostname, "%s-%02X%02X%02X%02X%02X%02X",
-        "AK",
-        macaddr[0], macaddr[1], macaddr[2],
-        macaddr[3], macaddr[4], macaddr[5]
-    );
-    context->adi_ether->hostName = hostname;
-    context->adi_ether->port = EMAC0;
-    memcpy(context->adi_ether->ethAddr.addr, macaddr,
-        sizeof(context->adi_ether->ethAddr.addr));
+    /* Configure the user parameters (hostname, EMAC port) */
+    eth->adi_ether->hostName = eth->hostname;
+    eth->adi_ether->port = cfg->port;
+    memcpy(eth->adi_ether->ethAddr.addr, eth->macaddr,
+        sizeof(eth->adi_ether->ethAddr.addr));
 
     /* Add the network interface */
-    netif_add(&context->eth0_netif,
-        &sam_ip_addr, &netmask, &gw_addr,
-        context->adi_ether, adi_ether_netif_init, tcpip_input);
+    netif_add(&eth->netif,
+        &ip_addr, &netmask, &gw_addr,
+        eth->adi_ether, adi_ether_netif_init, tcpip_input);
 
     /* Set this interface as the default interface */
-    netif_set_default(&context->eth0_netif);
+    if (cfg->default_iface) {
+        netif_set_default(&eth->netif);
+    }
 
 #if LWIP_NETIF_STATUS_CALLBACK
     /* Register a callback for DHCP address complete */
-    netif_set_status_callback(&context->eth0_netif, netif_status_callback);
+    netif_set_status_callback(&eth->netif, netif_status_callback);
 #else
     #error "Must enable LWIP_NETIF_STATUS_CALLBACK"
 #endif
 
 #if LWIP_NETIF_LINK_CALLBACK
     /* Register a callback for link status */
-    netif_set_link_callback(&context->eth0_netif, netif_link_status_callback);
+    netif_set_link_callback(&eth->netif, netif_link_status_callback);
 #else
     #error "Must enable LWIP_NETIF_LINK_CALLBACK"
 #endif
 
     /* Set interface to up */
-    netif_set_up(&context->eth0_netif);
+    netif_set_up(&eth->netif);
+
+    /* Enable mDNS */
+    if (first) {
+        mdns_resp_init();
+    }
+    mdns_resp_add_netif(&eth->netif, eth->hostname, 60);
 
     /* Enable DHCP */
-    if (context->cfg.static_ip == false) {
-        dhcp_start(&context->eth0_netif);
+    if (cfg->static_ip == false) {
+        dhcp_start(&eth->netif);
     }
 
     /* Start telnet server */
-    telnet_start();
+    if (first) {
+        telnet_start(context);
+    }
 
-    syslog_print("Ethernet init complete");
+    /* Log init complete */
+    syslog_printf(
+        "Ethernet %c%c%u init complete\n",
+        eth->netif.name[0], eth->netif.name[1], eth->netif.num
+    );
+
+    first = false;
 }

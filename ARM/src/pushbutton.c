@@ -11,9 +11,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* CCES includes */
-#include <services/gpio/adi_gpio.h>
-
 /* Kernel includes. */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -23,6 +20,7 @@
 #include "pushbutton.h"
 #include "syslog.h"
 #include "init.h"
+#include "gpio_pins.h"
 
 #ifndef PB1_CMD
 #define PB1_CMD "pushbtn1.cmd"
@@ -39,7 +37,6 @@ portTASK_FUNCTION( pushButtonTask, pvParameters )
 {
     APP_CONTEXT *context = (APP_CONTEXT *)pvParameters;
     TickType_t pollRate, lastPollTime;
-    uint32_t inputPort;
     unsigned debouncePB1, debouncePB2;
     bool lastPB1, lastPB2;
     bool doPB1, doPB2;
@@ -55,11 +52,8 @@ portTASK_FUNCTION( pushButtonTask, pvParameters )
     doPB1 = doPB2 = false;
 
     while (1) {
-        /* Get pushbutton state */
-        adi_gpio_GetData(PUSHBUTTON_PORT, &inputPort);
-
         /* Check PB1 */
-        PB = inputPort & PB1;
+        PB = gpio_get_pin(gpioPins, PB1);
         if (PB != lastPB1) {
             if (--debouncePB1 == 0) {
                 lastPB1 = PB; doPB1 = PB;
@@ -75,7 +69,7 @@ portTASK_FUNCTION( pushButtonTask, pvParameters )
         }
 
         /* Check PB2 */
-        PB = inputPort & PB2;
+        PB = gpio_get_pin(gpioPins, PB2);
         if (PB != lastPB2) {
             if (--debouncePB2 == 0) {
                 lastPB2 = PB; doPB2 = PB;
@@ -91,6 +85,6 @@ portTASK_FUNCTION( pushButtonTask, pvParameters )
         }
 
         /* Sleep for a while */
-        vTaskDelayUntil(&lastPollTime, pollRate);
+        vTaskDelayUntil(&lastPollTime, pdMS_TO_TICKS(pollRate));
     }
 }

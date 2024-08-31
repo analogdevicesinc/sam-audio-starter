@@ -11,4 +11,8 @@
 #define PACK_STRUCT_BEGIN               _Pragma("pack(1)")
 #define PACK_STRUCT_END                 _Pragma("pack()")
 
+#ifndef SSIZE_MAX
+#define SSIZE_MAX LONG_MAX
+#endif
+
 #endif /* _ARCH_CC_H_ */

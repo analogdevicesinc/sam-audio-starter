@@ -13,54 +13,46 @@
 
 /* Standard includes */
 #include <stdint.h>
-
-/* CCES includes */
-#include <services/gpio/adi_gpio.h>
+#include <stdbool.h>
 
 /* Project includes */
 #include "context.h"
-#include "twi_simple.h"
+#include "gpio_pins.h"
 
-#define PB1             ADI_GPIO_PIN_0
-#define PB2             ADI_GPIO_PIN_1
-#define PUSHBUTTON_PORT ADI_GPIO_PORT_F
-
-#define A2B_IO7_PIN     ADI_GPIO_PIN_13
-#define A2B_IO7_PORT    ADI_GPIO_PORT_F
-
-#define LED_PORT        ADI_GPIO_PORT_D
-#define LED1            ADI_GPIO_PIN_1
-#define LED2            ADI_GPIO_PIN_2
-#define LED3            ADI_GPIO_PIN_3
-
+void gic_init(void);
+void gic_set_irq_prio(void);
 void system_clk_init(uint32_t *cclk);
 void cgu_ts_init(void);
 void gpio_init(void);
-void gic_init(void);
-void heap_init(void);
 void flash_init(APP_CONTEXT *context);
+void umm_heap_init(void);
+void eth_hardware_init(APP_CONTEXT *context);
 
-int sam_hw_version(APP_CONTEXT *context);
+void mclk_init(APP_CONTEXT *context);
+void disable_mclk(APP_CONTEXT *context);
+void enable_mclk(APP_CONTEXT *context);
 
 void adau1761_init(APP_CONTEXT *context);
+
 void spdif_init(APP_CONTEXT *context);
-bool ad2425_init_master(APP_CONTEXT *context);
-void ad2425_reset(APP_CONTEXT *context);
-bool ad2425_restart(APP_CONTEXT *context);
-bool ad2425_set_mode(APP_CONTEXT *context, A2B_BUS_MODE mode);
-bool ad2425_sport_start(APP_CONTEXT *context, uint8_t I2SGCFG, uint8_t I2SCFG);
-bool ad2425_sport_stop(APP_CONTEXT *context);
 
-void disable_sport_mclk(APP_CONTEXT *context);
-void enable_sport_mclk(APP_CONTEXT *context);
-void audio_mclk_24576_mhz(APP_CONTEXT *context);
-void debug_signal_init(void);
+bool a2b_master_init(APP_CONTEXT *context);
+void a2b_reset(APP_CONTEXT *context);
+bool a2b_restart(APP_CONTEXT *context);
+bool a2b_set_mode(APP_CONTEXT *context, A2B_BUS_MODE mode);
+bool a2b_sport_start(APP_CONTEXT *context, uint8_t I2SGCFG, uint8_t I2SCFG);
+bool a2b_sport_stop(APP_CONTEXT *context);
+void a2b_pint_init(APP_CONTEXT *context);
 
-void emac0_phy_init(APP_CONTEXT *context);
+bool a2b2_master_init(APP_CONTEXT *context);
+bool a2b2_restart(APP_CONTEXT *context);
+bool a2b2_sport_deinit(APP_CONTEXT *context);
 
 void sae_buffer_init(APP_CONTEXT *context);
+
 void audio_routing_init(APP_CONTEXT *context);
 
 void system_reset(APP_CONTEXT *context);
+int sam_hw_version(APP_CONTEXT *context);
 
 #endif

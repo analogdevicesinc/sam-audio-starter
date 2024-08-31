@@ -42,14 +42,6 @@ make -j4
 ### Binaries
 - Binaries are located in the root of the _build_ folder.
 
-## Compilation through CCES (Windows only!)
-
-- Open CCES and set preferred workspace
-- In the project explorer, right-click and select _Import_ -> _General_ -> _Existing Projects into Workspace_ and select _Next_
-- Change the root directory to _<project_root>_ and select _Finish_ . Note that three projects will be imported, one for each core (ARM, SHARC0 and SHARC1))
-- To build in _Debug_ mode, set the active build configuration for each core to _Debug_. To build in _Release_ mode, set the active build configuraiton for each core to _Release_. 
-- Binaries are located in _build/CCES/Binaries/<Debug|Release>_
-
 ## Debugging the code
 - Open CCES, create a new debug configuration
 - Load `<CCES_INSTALL_DIR>\SHARC\ldr\ezkitSC589_preload_core0_v01` into core0
@@ -62,8 +54,7 @@ make -j4
 
 ## Additional Notes
 
-- The makefiles for standalone vs. CCES are NOT the same. CCES automatically generates the makefile based on parameter settings in the tool. Updates to settings for one will not reflect in the other. 
-- While the CCES project should work for any version, it has only been verified using versions 2.9.3, 2.11.0 and 2.11.1. 
+- While the CCES project should work for any version, it has only been verified using versions 2.11.0 and 2.11.1, 2.12.0. 
 - Relese notes can be found in the root of this project. 
 
 ## LICENSE and NOTICE files
