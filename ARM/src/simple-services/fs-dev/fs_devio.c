@@ -27,6 +27,7 @@
 #include "fs_devman_cfg.h"
 #include "fs_devman_priv.h"
 #include "fs_devman.h"
+#include "fs_devio.h"
 
 #ifndef FS_DEVIO_DEVICE
 #define FS_DEVIO_DEVICE     2000
@@ -47,6 +48,7 @@ typedef struct _FS_DEVIO_FD {
 } FS_DEVIO_FD;
 
 static FS_DEVIO_FD DEVIO_FD[FS_DEVIO_MAX_FDS];
+static FS_DEVIO_INIT *DEVIO_INIT = NULL;
 
 /***********************************************************************
  * Init
@@ -332,6 +334,9 @@ static clock_t _fs_devio_times(void)
 
 static void _fs_devio_gettimeofday(struct timeval *tp, void *tzvp)
 {
+    if (DEVIO_INIT && DEVIO_INIT->getTimeOfDay) {
+        (void)DEVIO_INIT->getTimeOfDay(tp, tzvp);
+    }
 }
 
 static int _fs_devio_kill(int processID, int signal)
@@ -402,9 +407,11 @@ DevEntry fs_devio_deventry = {
 /***********************************************************************
  * Public functions
  **********************************************************************/
-void fs_devio_init(void)
+void fs_devio_init(FS_DEVIO_INIT *devioInit)
 {
     int result;
+
+    DEVIO_INIT = devioInit;
 
     result = add_devtab_entry(&fs_devio_deventry);
 

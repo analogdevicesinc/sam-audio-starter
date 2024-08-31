@@ -21,52 +21,8 @@
 */
 #include <stdarg.h>
 
-#include "syslog_cfg.h"
-
 #ifndef SYSLOG_H_
 #define SYSLOG_H_
-
-/*!****************************************************************
- * @brief  The maximum number of entries in the syslog FIFO
- ******************************************************************/
-#ifndef SYSLOG_MAX_LINES
-#define SYSLOG_MAX_LINES   (1000)
-#endif
-
-/*!****************************************************************
- * @brief  The maximum line length of a syslog entry
- ******************************************************************/
-#ifndef SYSLOG_LINE_MAX
-#define SYSLOG_LINE_MAX    (128)
-#endif
-
-/*!****************************************************************
- * @brief  The function used to allocate memory for the syslog
- * buffer.
- *
- * This defaults to the standard C library malloc if not defined
- * otherwise.
- ******************************************************************/
-#ifndef SYSLOG_MALLOC
-#define SYSLOG_MALLOC(x)   malloc(x)
-#endif
-
-/*!****************************************************************
- * @brief  The function used to free memory.
- *
- * This defaults to the standard C library free if not defined
- * otherwise.
- ******************************************************************/
-#ifndef SYSLOG_FREE
-#define SYSLOG_FREE (x)    free(x)
-#endif
-
-/*!****************************************************************
- * @brief  The name of the syslog instance.
- ******************************************************************/
-#ifndef SYSLOG_NAME
-#define SYSLOG_NAME        "Console Log"
-#endif
 
 /*!****************************************************************
  * @brief  System log init

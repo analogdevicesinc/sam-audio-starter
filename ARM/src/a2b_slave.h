@@ -11,9 +11,8 @@
 #ifndef _a2b_slave_h
 #define _a2b_slave_h
 
-#include "FreeRTOS.h"
-#include "task.h"
+#include "context.h"
 
-portTASK_FUNCTION(a2bSlaveTask, pvParameters);
+void a2b_slave_init(APP_CONTEXT *context);
 
 #endif

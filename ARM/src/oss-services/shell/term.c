@@ -80,6 +80,38 @@ void term_left( TERM_STATE *t, unsigned delta )
   t->term_cx += delta;
 }
 
+// Reset the character mode
+void term_reset_mode( TERM_STATE *t )
+{
+  term_ansi( t, "0m" );
+}
+
+// Request current size from the terminal
+void term_sync_size( TERM_STATE *t )
+{
+  term_putstr( t, "\x1B" "7", 2 ); // Store cursor position
+  term_ansi( t, "999;999H" );      // Move far away
+  term_ansi( t, "6n" );            // Request position
+  term_putstr( t, "\x1B" "8", 2 ); // Restore cursor position
+}
+
+// Set the terminal size
+void term_set_size( TERM_STATE *t, unsigned num_cols, unsigned num_lines )
+{
+  t->term_num_lines = num_lines;
+  t->term_num_cols = num_cols;
+  term_ansi(t, "8;%u;%ut", num_lines, num_cols);
+}
+
+void term_set_mode( TERM_STATE *t, int mode, int set )
+{
+    if ( set ) {
+        t->term_mode |= mode;
+    } else {
+        t->term_mode &= ~mode;
+    }
+}
+
 // Return the number of terminal lines
 unsigned term_get_lines(TERM_STATE *t)
 {
@@ -95,11 +127,12 @@ unsigned term_get_cols(TERM_STATE *t)
 // Write a character to the terminal
 void term_putch( TERM_STATE *t, char ch )
 {
-  if( ch == '\n' )
+  if( ( ch == '\n' ) && ( t->term_mode & TERM_MODE_COOKED ) )
   {
     if( t->term_cy < t->term_num_lines )
       t->term_cy ++;
     t->term_cx = 0;
+    t->term_out( '\r', t->usr );
   }
   t->term_out( ch, t->usr );
 }
@@ -109,7 +142,7 @@ void term_putstr( TERM_STATE *t, const char* str, unsigned size )
 {
   while( size )
   {
-    t->term_out( *str ++, t->usr );
+    term_putch( t, *str ++ );
     size --;
   }
 }
@@ -137,10 +170,12 @@ int term_getch( TERM_STATE *t, int mode )
 {
   int ch;
 
-  if( ( ch = t->term_in( mode, t->usr ) ) == -1 )
-    return -1;
+  ch = t->term_in( mode, t->usr );
+
+  if( ( ch != -1 ) && ( t->term_mode & TERM_MODE_COOKED ) )
+    return t->term_translate( t, ch, t->usr );
   else
-    return t->term_translate( ch, t->usr );
+    return ch;
 }
 
 void term_init( TERM_STATE *t, unsigned lines, unsigned cols, p_term_out term_out_func,
@@ -154,6 +189,7 @@ void term_init( TERM_STATE *t, unsigned lines, unsigned cols, p_term_out term_ou
   t->term_translate = term_translate_func;
   t->usr = usr;
   t->term_cx = t->term_cy = 0;
+  t->term_mode = TERM_MODE_COOKED;
 }
 
 void term_deinit( TERM_STATE *t )

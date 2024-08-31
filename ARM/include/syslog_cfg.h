@@ -14,7 +14,8 @@
 
 #include "umm_malloc.h"
 
-/*! @cond */
+/* Use lightweight printf */
+#include "printf.h"
 
 #define SYSLOG_NAME        "Console Log"
 

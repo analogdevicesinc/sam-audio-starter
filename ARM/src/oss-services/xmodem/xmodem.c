@@ -1,224 +1,343 @@
-/*-
- * Copyright (c) 2006 M. Warner Losh.  All rights reserved.
- *
+/***********************************************************************************************************************
+ * XMODEM implementation with YMODEM support
+ ***********************************************************************************************************************
+ * Copyright 2001-2019 Georges Menie (www.menie.org)
+ * Modified by Thuffir in 2019
+ * Modified by Analog Devices in 2024
+ * All rights reserved.
  * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
+ * modification, are permitted provided that the following conditions are met:
  *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
- * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
- * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
- * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
- * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
- * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the University of California, Berkeley nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
  *
- * This software is derived from software provide by Kwikbyte who specifically
- * disclaimed copyright on the code.  This version of xmodem has been nearly
- * completely rewritten, but the CRC is from the original.
- *
- * $FreeBSD: src/sys/boot/arm/at91/libat91/xmodem.c,v 1.1 2006/04/19 17:16:49 imp Exp $
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL THE REGENTS AND CONTRIBUTORS BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ **********************************************************************************************************************/
+
+/* this code needs standard functions memcpy() and memset()
+   and input/output functions _inbyte() and _outbyte().
+
+   the prototypes of the input/output functions are:
+     int _inbyte(unsigned short timeout, void *); // timeout
+     void _outbyte(int c, void *);
+
  */
 
-/*
- * This code has been modified by Analog Devices, Inc.
- */
-
-// Modified by BogdanM for eLua
-
-#include <stddef.h>
+/* Needed for memcpy() and memeset() */
 #include <string.h>
-#include <stdlib.h>
-
-#include "xmodem_cfg.h"
 #include "xmodem.h"
 
-// Line control codes
-#define XM_SOH  0x01
-#define XM_STX  0x02
-#define XM_ACK  0x06
-#define XM_NAK  0x15
-#define XM_CAN  0x18
-#define XM_EOT  0x04
+/***********************************************************************************************************************
+ * Character constants
+ **********************************************************************************************************************/
+#define SOH   0x01
+#define STX   0x02
+#define EOT   0x04
+#define ACK   0x06
+#define NAK   0x15
+#define CAN   0x18
+#define CTRLZ 0x1A
 
-// Arguments to xmodem_flush
-#define XMODEM_FLUSH_ONLY       0
-#define XMODEM_FLUSH_AND_XM_CAN    1
+#ifdef XMODEM_1K
+/* 1024 for XModem 1k + 3 head chars + 2 crc */
+#define XBUF_SIZE (1024 + 3 + 2)
+#else
+/* 128 for XModem + 3 head chars + 2 crc */
+#define XBUF_SIZE (128 + 3 + 2)
+#endif
 
-// Delay in "flush packet" mode
-#define XMODEM_PACKET_DELAY        10000UL
-
-// Maximum buffer size
-#define XMODEM_MAX_BUF_SIZE        (1024 + 4)
-
-// Utility function: flush the receive buffer
-static void xmodem_flush( int how, p_xm_send_func send, p_xm_recv_func recv, void *usr )
+#ifndef HAVE_CRC16
+/***********************************************************************************************************************
+ * Calculate the CCITT-CRC-16 value of a given buffer
+ **********************************************************************************************************************/
+static unsigned short crc16_ccitt(
+  /* Pointer to the byte buffer */
+  const unsigned char *buffer,
+  /* length of the byte buffer */
+  int length)
 {
-  while( recv( XMODEM_PACKET_DELAY, usr ) != -1 );
-  if( how == XMODEM_FLUSH_AND_XM_CAN )
-  {
-    send( XM_CAN, usr );
-    send( XM_CAN, usr );
-    send( XM_CAN, usr );
+  unsigned short crc16 = 0;
+  while(length != 0) {
+    crc16  = (unsigned char)(crc16 >> 8) | (crc16 << 8);
+    crc16 ^= *buffer;
+    crc16 ^= (unsigned char)(crc16 & 0xff) >> 4;
+    crc16 ^= (crc16 << 8) << 4;
+    crc16 ^= ((crc16 & 0xff) << 4) << 1;
+    buffer++;
+    length--;
   }
+
+  return crc16;
 }
+#endif
 
-// This private function receives a x-modem record to the pointer and
-// returns 1 on success and 0 on error
-static int xmodem_get_record( unsigned char blocknum, unsigned char *pbuf, unsigned psize,
-    p_xm_send_func send, p_xm_recv_func recv, void *usr)
+/***********************************************************************************************************************
+ * Check block
+ **********************************************************************************************************************/
+static int check(int crc, const unsigned char *buf, int sz)
 {
-  unsigned chk, j, size;
-  int ch;
-
-  // Read packet
-  for( j = 0; j < psize + 4; j ++ )
-  {
-    if( ( ch = recv( XMODEM_TIMEOUT, usr ) ) == -1 )
-      goto err;
-    pbuf[ j ] = ( unsigned char )ch;
+  if (crc) {
+    unsigned short crc = crc16_ccitt(buf, sz);
+    unsigned short tcrc = (buf[sz]<<8)+buf[sz+1];
+    if (crc == tcrc)
+      return 1;
   }
-
-  // Check block number
-  if( *pbuf ++ != blocknum )
-    goto err;
-  if( *pbuf ++ != ( unsigned char )(~blocknum & 0xFF))
-    goto err;
-  // Check CRC
-  for( size = chk = 0; size < psize; size++, pbuf ++ )
-  {
-    chk = chk ^ *pbuf << 8;
-    for( j = 0; j < 8; j ++ )
-    {
-      if( chk & 0x8000 )
-        chk = chk << 1 ^ 0x1021;
-      else
-        chk = chk << 1;
+  else {
+    int i;
+    unsigned char cks = 0;
+    for (i = 0; i < sz; ++i) {
+      cks += buf[i];
     }
+    if (cks == buf[sz])
+      return 1;
   }
-  chk &= 0xFFFF;
-  if( *pbuf ++ != ( ( chk >> 8 ) & 0xFF ) )
-    goto err;
-  if( *pbuf ++ != ( chk & 0xFF ) )
-    goto err;
-  return 1;
 
-err:
-  send( XM_NAK, usr );
   return 0;
 }
 
-// This global function receives a x-modem transmission consisting of
-// (potentially) several blocks.  Returns the number of bytes received or
-// an error code an error
-long xmodem_receive(p_xm_data_func callback, void *usr,
-    p_xm_send_func send, p_xm_recv_func recv)
+/***********************************************************************************************************************
+ * Flush input
+ **********************************************************************************************************************/
+static void flushinput(XmodemInByte _inbyte, void *ctx)
 {
-  int starting = 1, ch;
-  unsigned char packnum = 1;
-  unsigned char *buf[2];
-  unsigned retries = XMODEM_RETRY_LIMIT;
-  unsigned psize[2];
-  int x, size = 0;
-  int inBuf, outBuf;
-  int err;
+  while (_inbyte(((DLY_1S)*3)>>1, ctx) >= 0)
+    ;
+}
 
-  outBuf = -1;
-  inBuf = -1;
-  psize[0] = 128;
-  psize[1] = 128;
+/***********************************************************************************************************************
+ * XMODEM Receive
+ **********************************************************************************************************************/
+int XmodemReceive(StoreChunkType storeChunk, void *ctx, int destsz, int crc, int mode, XmodemInByte _inbyte, XmodemOutByte _outbyte)
+{
+  unsigned char xbuff[XBUF_SIZE];
+  unsigned char *p;
+  int bufsz;
+  unsigned char trychar = (crc == 2) ? 'G' : (crc ? 'C' : NAK);
+  unsigned char packetno = mode ? 0 : 1;
+  int i, c, len = 0;
+  int retry, retrans = MAXRETRANS;
 
-  buf[0] = XMODEM_MALLOC(XMODEM_MAX_BUF_SIZE);
-  buf[1] = XMODEM_MALLOC(XMODEM_MAX_BUF_SIZE);
-
-  memset(buf[0], '\x1A', XMODEM_MAX_BUF_SIZE);
-  memset(buf[1], '\x1A', XMODEM_MAX_BUF_SIZE);
-
-  while( retries-- )
-  {
-    if( starting )
-      send( 'C', usr );
-    if( ( ( ch = recv( XMODEM_TIMEOUT, usr ) ) == -1 ) || ( ch != XM_SOH && ch != XM_STX && ch != XM_EOT && ch != XM_CAN ) )
-      continue;
-    if( ch == XM_EOT )
-    {
-      if (inBuf >= 0) {
-        x = 2 + psize[inBuf] - 1;
-        while (buf[inBuf][x] == '\x1A') {
-           x--; size--;
-        }
-        if (callback) {
-           err = callback(&buf[inBuf][2], x - 2 + 1, true, usr);
-           if (err != XMODEM_ERROR_NONE) {
-              size = err;
-           }
+  for(;;) {
+    for( retry = 0; retry < 16; ++retry) {
+      if (trychar) _outbyte(trychar, ctx);
+      if ((c = _inbyte((DLY_1S)<<1, ctx)) >= 0) {
+        switch (c) {
+          case SOH:
+            bufsz = 128;
+            goto start_recv;
+#ifdef XMODEM_1K
+          case STX:
+            bufsz = 1024;
+            goto start_recv;
+#endif
+          case EOT:
+            if(storeChunk) {
+              storeChunk(ctx, NULL, 0);
+            }
+            _outbyte(ACK, ctx);
+            return len; /* normal end */
+          case CAN:
+            if ((c = _inbyte(DLY_1S, ctx)) == CAN) {
+              flushinput(_inbyte, ctx);
+              _outbyte(ACK, ctx);
+              return -1; /* canceled by remote */
+            }
+            break;
+          default:
+            break;
         }
       }
-      // End of transmission
-      send( XM_ACK, usr );
-      xmodem_flush( XMODEM_FLUSH_ONLY, send, recv, usr );
-      XMODEM_FREE(buf[0]); XMODEM_FREE(buf[1]);
-      return size;
     }
-    else if( ch == XM_CAN )
-    {
-      // The remote part ended the transmission
-      send( XM_ACK, usr );
-      xmodem_flush( XMODEM_FLUSH_ONLY, send, recv, usr );
-      XMODEM_FREE(buf[0]); XMODEM_FREE(buf[1]);
-      return XMODEM_ERROR_REMOTECANCEL;
-    }
-    starting = 0;
+    if (trychar == 'G') { trychar = 'C'; crc = 1; continue; }
+    else if (trychar == 'C') { trychar = NAK; crc = 0; continue; }
+    flushinput(_inbyte, ctx);
+    _outbyte(CAN, ctx);
+    _outbyte(CAN, ctx);
+    _outbyte(CAN, ctx);
+    return -2; /* sync error */
 
-    if (++inBuf > 1) {
-       inBuf = 0;
+    start_recv:
+    trychar = 0;
+    p = xbuff;
+    *p++ = c;
+    for (i = 0;  i < (bufsz+(crc?1:0)+3); ++i) {
+      if ((c = _inbyte(DLY_1S, ctx)) < 0) goto reject;
+      *p++ = c;
     }
 
-    // Get XMODEM packet
-    if (ch == XM_STX)
-    {
-       psize[inBuf] = 1024;
-    }
-    else
-    {
-       psize[inBuf] = 128;
-    }
-    if( !xmodem_get_record( packnum, buf[inBuf], psize[inBuf], send, recv, usr ) )
-      continue; // allow for retransmission
-    xmodem_flush( XMODEM_FLUSH_ONLY, send, recv, usr );
-    retries = XMODEM_RETRY_LIMIT;
-    packnum ++; packnum &= 0xFF;
-
-    if (outBuf >= 0) {
-       if (callback) {
-          err = callback(&buf[outBuf][2], psize[outBuf], false, usr);
-          // If error, force cancel and return
-          if (err != XMODEM_ERROR_NONE) {
-             xmodem_flush( XMODEM_FLUSH_AND_XM_CAN, send, recv, usr );
-             XMODEM_FREE(buf[0]); XMODEM_FREE(buf[1]);
-             return err;
+    if (xbuff[1] == (unsigned char)(~xbuff[2]) &&
+        (xbuff[1] == packetno || xbuff[1] == (unsigned char)packetno-1) &&
+        check(crc, &xbuff[3], bufsz)) {
+      if (xbuff[1] == packetno) {
+        register int count = destsz - len;
+        if (count > bufsz) count = bufsz;
+        if (count > 0) {
+          if(storeChunk) {
+            storeChunk(ctx, &xbuff[3], count);
           }
-       }
+          else {
+            memcpy (&((unsigned char *)ctx)[len], &xbuff[3], count);
+          }
+          len += count;
+        }
+        ++packetno;
+        retrans = MAXRETRANS+1;
+      }
+      if (--retrans <= 0) {
+        flushinput(_inbyte, ctx);
+        _outbyte(CAN, ctx);
+        _outbyte(CAN, ctx);
+        _outbyte(CAN, ctx);
+        return -3; /* too many retry error */
+      }
+      if(crc != 2) _outbyte(ACK, ctx);
+      if(mode) return len; /* YMODEM control block received */
+      continue;
     }
-    if (++outBuf > 1) {
-       outBuf = 0;
-    }
-
-    // Acknowledge and consume packet
-    send( XM_ACK, usr );
-    size += psize[inBuf];
+    reject:
+    flushinput(_inbyte, ctx);
+    _outbyte(NAK, ctx);
   }
+}
 
-  // Exceeded retry count
-  xmodem_flush( XMODEM_FLUSH_AND_XM_CAN, send, recv, usr );
-  XMODEM_FREE(buf[0]); XMODEM_FREE(buf[1]);
-  return XMODEM_ERROR_RETRYEXCEED;
+/***********************************************************************************************************************
+ * XMODEM Transmit
+ **********************************************************************************************************************/
+int XmodemTransmit(FetchChunkType fetchChunk, void *ctx, int srcsz, int onek, int mode, XmodemInByte _inbyte, XmodemOutByte _outbyte)
+{
+  unsigned char xbuff[XBUF_SIZE];
+  int bufsz, crc = -1;
+  unsigned char packetno = mode ? 0 : 1;
+  int i, c, len = 0;
+  int retry;
+
+  for(;;) {
+    for( retry = 0; retry < 16; ++retry) {
+      if ((c = _inbyte((DLY_1S)<<1, ctx)) >= 0) {
+        switch (c) {
+          case 'G':
+            crc = 2;
+            goto start_trans;
+          case 'C':
+            crc = 1;
+            goto start_trans;
+          case NAK:
+            crc = 0;
+            goto start_trans;
+          case CAN:
+            if ((c = _inbyte(DLY_1S, ctx)) == CAN) {
+              _outbyte(ACK, ctx);
+              flushinput(_inbyte, ctx);
+              return -1; /* canceled by remote */
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    _outbyte(CAN, ctx);
+    _outbyte(CAN, ctx);
+    _outbyte(CAN, ctx);
+    flushinput(_inbyte, ctx);
+    return -2; /* no sync */
+
+    for(;;) {
+      start_trans:
+      c = srcsz - len;
+#ifdef XMODEM_1K
+      if(onek && (c > 128)) {
+        xbuff[0] = STX; bufsz = 1024;
+      }
+      else
+#endif
+      {
+        xbuff[0] = SOH; bufsz = 128;
+      }
+      xbuff[1] = packetno;
+      xbuff[2] = ~packetno;
+      if (c > bufsz) c = bufsz;
+      if (c > 0) {
+        memset (&xbuff[3], mode ? 0 : CTRLZ, bufsz);
+        if(fetchChunk) {
+          fetchChunk(ctx, &xbuff[3], c);
+        }
+        else {
+          memcpy (&xbuff[3], &((unsigned char *)ctx)[len], c);
+        }
+        if (crc) {
+          unsigned short ccrc = crc16_ccitt(&xbuff[3], bufsz);
+          xbuff[bufsz+3] = (ccrc>>8) & 0xFF;
+          xbuff[bufsz+4] = ccrc & 0xFF;
+        }
+        else {
+          unsigned char ccks = 0;
+          for (i = 3; i < bufsz+3; ++i) {
+            ccks += xbuff[i];
+          }
+          xbuff[bufsz+3] = ccks;
+        }
+        for (retry = 0; retry < MAXRETRANS; ++retry) {
+          for (i = 0; i < bufsz+4+(crc?1:0); ++i) {
+            _outbyte(xbuff[i], ctx);
+          }
+          c = (crc == 2) ? ACK : _inbyte(DLY_1S, ctx);
+          if (c >= 0 ) {
+            switch (c) {
+              case ACK:
+                ++packetno;
+                len += bufsz;
+                goto start_trans;
+              case CAN:
+                if ((c = _inbyte(DLY_1S, ctx)) == CAN) {
+                  _outbyte(ACK, ctx);
+                  flushinput(_inbyte, ctx);
+                  return -1; /* canceled by remote */
+                }
+                break;
+              case NAK:
+              default:
+                break;
+            }
+          }
+        }
+        _outbyte(CAN, ctx);
+        _outbyte(CAN, ctx);
+        _outbyte(CAN, ctx);
+        flushinput(_inbyte, ctx);
+        return -4; /* xmit error */
+      }
+      else if(mode) {
+        return len; /* YMODEM control block sent */
+      }
+      else {
+        for (retry = 0; retry < 10; ++retry) {
+          _outbyte(EOT, ctx);
+          if ((c = _inbyte((DLY_1S)<<1, ctx)) == ACK) break;
+        }
+        if(c == ACK) {
+          return len; /* Normal exit */
+        }
+        else {
+          flushinput(_inbyte, ctx);
+          return -5; /* No ACK after EOT */
+        }
+      }
+    }
+  }
 }

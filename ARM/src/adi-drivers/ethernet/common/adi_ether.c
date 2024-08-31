@@ -51,7 +51,7 @@
  *****************************************************************************/
 #include <stdio.h>
 
-#if !defined(__ADSPSC589_FAMILY__)
+#if (!defined(__ADSPSC589_FAMILY__))&&(!defined(__ADSPSC594_FAMILY__))
 #include <adi_types.h>
 #else
 #include <stdint.h>

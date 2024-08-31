@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -8,6 +8,12 @@
  * otherwise using the software constitutes acceptance of the license. The
  * software may not be used except as expressly authorized under the license.
  */
+
+/* Standard library includes */
+#include <string.h>
+#include <limits.h>
+#include <assert.h>
+#include <stdbool.h>
 
 /* ADI service includes */
 #include <services/gpio/adi_gpio.h>
@@ -18,132 +24,42 @@
 /* ADI processor includes */
 #include <sruSC589.h>
 
-/* Standard library includes */
-#include <string.h>
-#include <assert.h>
-
-#ifdef FREE_RTOS
+/* Kernel includes */
 #include "FreeRTOS.h"
-#endif
-
-/* umm_malloc includes  */
-#include "umm_malloc.h"
-#include "umm_malloc_heaps.h"
-#include "umm_malloc_cfg.h"
+#include "semphr.h"
 
 /* Simple driver includes */
+#include "uart_simple.h"
+#include "uart_stdio.h"
+#include "twi_simple.h"
+#include "spi_simple.h"
 #include "sport_simple.h"
-#include "flash.h"
-#include "mt25ql512.h"
-#include "is25lp512.h"
 #include "pcg_simple.h"
+#include "flash.h"
+#include "is25lp512.h"
+#include "mt25ql512.h"
 
 /* Simple service includes */
+#include "adau1761.h"
 #include "syslog.h"
 #include "a2b_to_sport_cfg.h"
+#include "sae.h"
+
+/* OSS service includes */
+#include "umm_malloc.h"
+#include "umm_malloc_heaps.h"
 
 /* Application includes */
 #include "context.h"
 #include "clocks.h"
 #include "init.h"
-#include "adau1761.h"
+#include "util.h"
 #include "codec_audio.h"
 #include "spdif_audio.h"
 #include "a2b_audio.h"
-#include "util.h"
-#include "sae_irq.h"
-#include "flash_map.h"
+#include "route.h"
 #include "clock_domain.h"
-
-/***********************************************************************
- * Audio Clock Initialization
- **********************************************************************/
-/* DAI IE Bit definitions (not in any ADI header files) */
-#define BITP_PADS0_DAI0_IE_PB06   (6)
-#define BITP_PADS0_DAI0_IE_PB07   (7)
-#define BITP_PADS0_DAI0_IE_PB08   (8)
-#define BITP_PADS0_DAI0_IE_PB13   (13)
-
-/*
- * The RED_BOARD is the very first engineering sample of the SAM
- * board.  This board did not route the audio MCLK to a DAI pin so
- * a jumper wire must be installed for this option to work with this
- * software.
- *
- * Enable this option in the makefile.
- *
- * Install the jumper wire between R48 (on the side opposite of the
- * clock generator) to P4 pin 11 (DAI0_PB13).
- */
-#ifdef RED_BOARD
-#define BITP_PADS0_DAI0_IE_MCLK BITP_PADS0_DAI0_IE_PB13
-#define DAI0_MCLK_PIN 13
-#else
-#define BITP_PADS0_DAI0_IE_MCLK BITP_PADS0_DAI0_IE_PB06
-#define DAI0_MCLK_PIN 6
-#endif
-
-#pragma pack(1)
-typedef struct SI5356A_REG_DATA {
-   uint8_t addr;
-   uint8_t value;
-} SI5356A_REG_DATA;
-#pragma pack()
-
-SI5356A_REG_DATA SI5356_CLK4_24567Mhz[] = {
-    { 230,0x04},
-    {  74,0x10},
-    {  75,0xC2},
-    {  76,0x2A},
-    {  77,0x00},
-    {  78,0x02},
-    {  79,0x00},
-    {  80,0x00},
-    {  81,0x80},
-    {  82,0x01},
-    {  83,0x00},
-    {  84,0x00},
-    { 230,0x00}
-};
-
-/* This function sets CLK4/5 of U25 (the main audio @ MCLK DAI0_PIN06) to
- * 24.576MHz instead of it's default speed of 12.288MHz.
- */
-void audio_mclk_24576_mhz(APP_CONTEXT *context)
-{
-    TWI_SIMPLE_RESULT twiResult;
-    sTWI *twi;
-    uint8_t i;
-    uint8_t len;
-
-    /* Fixed clocks on SAM V2 */
-    if (context->samVersion >= SAM_VERSION_2) {
-        return;
-    }
-
-    twi = context->ethClkTwiHandle;
-
-    len = sizeof(SI5356_CLK4_24567Mhz) / sizeof(SI5356A_REG_DATA);
-
-    for (i = 0; i < len; i++) {
-        twiResult = twi_write(twi, 0x70,
-            (uint8_t *)&SI5356_CLK4_24567Mhz[i], sizeof(SI5356A_REG_DATA));
-    }
-}
-
-#define AUDIO_CLK_DAI0_IE (          \
-    (1 << BITP_PADS0_DAI0_IE_MCLK)   \
-)
-
-void disable_sport_mclk(APP_CONTEXT *context)
-{
-    *pREG_PADS0_DAI0_IE &= ~(AUDIO_CLK_DAI0_IE);
-}
-
-void enable_sport_mclk(APP_CONTEXT *context)
-{
-    *pREG_PADS0_DAI0_IE |= (AUDIO_CLK_DAI0_IE);
-}
+#include "si3536.h"
 
 /***********************************************************************
  * System Clock Initialization
@@ -170,6 +86,12 @@ void system_clk_init(uint32_t *cclk)
     if (cclk) {
         *cclk = _cclk;
     }
+
+    /* Make sure they match clocks.h */
+    assert(_cclk == CCLK);
+    assert(sclk == SYSCLK);
+    assert(sclk0 == SCLK0);
+    assert(oclk == OCLK);
 
     /* CAN clock is derived from CDU0_CLKO4 (Pg. 4-3 of HRM)
      * Choose OCLK_0 (see oclk above)
@@ -233,12 +155,6 @@ void system_clk_init(uint32_t *cclk)
 /***********************************************************************
  * GPIO / Pin MUX / SRU Initialization
  **********************************************************************/
-/*
- * The port FER and MUX settings are detailed in:
- *    ADSP-SC582_583_584_587_589_ADSP-21583_584_587.pdf
- *
- */
-
 /* EMAC0 GPIO FER bit positions (one bit per FER entry) */
 #define EMAC0_MDIO_PORTA_FER          (1 << BITP_PORT_DATA_PX3)
 #define EMAC0_MDC_PORTA_FER           (1 << BITP_PORT_DATA_PX2)
@@ -317,47 +233,116 @@ void system_clk_init(uint32_t *cclk)
 #define MSI0_CLK_PORTF_MUX  (0 << (BITP_PORT_DATA_PX11 << 1))
 #define MSI0_CD_PORTF_MUX   (0 << (BITP_PORT_DATA_PX12 << 1))
 
+/* DAI IE Bit definitions (not in any ADI header files) */
+#define BITP_PADS0_DAI0_IE_PB06   (6)
+#define BITP_PADS0_DAI0_IE_PB07   (7)
+#define BITP_PADS0_DAI0_IE_PB08   (8)
+#define BITP_PADS0_DAI0_IE_PB13   (13)
+
+#define BITP_PADS0_DAI0_IE_MCLK BITP_PADS0_DAI0_IE_PB06
+#define DAI0_MCLK_PIN 6
+
+/*
+ * WARNING: Order must match the GPIO_PIN_ID enum in gpio_pins.h!
+ */
+GPIO_CONFIG gpioPins[GPIO_PIN_MAX] = {
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_0,  ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_PB1
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_1,  ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_PB2
+    { ADI_GPIO_PORT_D, ADI_GPIO_PIN_1,  ADI_GPIO_DIRECTION_OUTPUT, 0 },  // GPIO_PIN_LED10
+    { ADI_GPIO_PORT_D, ADI_GPIO_PIN_2,  ADI_GPIO_DIRECTION_OUTPUT, 0 },  // GPIO_PIN_LED11
+    { ADI_GPIO_PORT_D, ADI_GPIO_PIN_3,  ADI_GPIO_DIRECTION_OUTPUT, 0 },  // GPIO_PIN_LED12
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_7,  ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_A2B_IRQ
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_8,  ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_A2B_IO1
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_9,  ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_A2B_IO2
+    { ADI_GPIO_PORT_F, ADI_GPIO_PIN_13, ADI_GPIO_DIRECTION_INPUT,  0 },  // GPIO_PIN_A2B_IO7
+    { ADI_GPIO_PORT_B, ADI_GPIO_PIN_6,  ADI_GPIO_DIRECTION_OUTPUT, 0 },  // GPIO_PIN_1761_ADDR1
+    { ADI_GPIO_PORT_B, ADI_GPIO_PIN_7,  ADI_GPIO_DIRECTION_OUTPUT, 0 },  // GPIO_PIN_ETH0_RESET
+#if 0
+    { ADI_GPIO_PORT_E, ADI_GPIO_PIN_14,  ADI_GPIO_DIRECTION_OUTPUT, 0 }, // SIGMA Pin 5 (MISO/Debug)
+    { ADI_GPIO_PORT_E, ADI_GPIO_PIN_13,  ADI_GPIO_DIRECTION_OUTPUT, 0 }, // SIGMA Pin 7 (CLK/Debug)
+#endif
+};
+
+bool gpio_get_pin(GPIO_CONFIG *pinConfig, GPIO_PIN_ID pinId)
+{
+    ADI_GPIO_RESULT result;
+    GPIO_CONFIG *pin;
+    uint32_t value;
+
+    pin = &pinConfig[pinId];
+
+    result = adi_gpio_GetData(pin->port, &value);
+
+    pin->state = value & pin->pinNum;
+
+    return(pin->state);
+}
+
+void gpio_set_pin(GPIO_CONFIG *pinConfig, GPIO_PIN_ID pinId, bool state)
+{
+    ADI_GPIO_RESULT result;
+    GPIO_CONFIG *pin;
+
+    pin = &pinConfig[pinId];
+
+    if (state) {
+        result = adi_gpio_Set(pin->port, pin->pinNum);
+    } else {
+        result = adi_gpio_Clear(pin->port, pin->pinNum);
+    }
+
+    pin->state = state;
+}
+
+void gpio_toggle_pin(GPIO_CONFIG *pinConfig, GPIO_PIN_ID pinId)
+{
+    ADI_GPIO_RESULT result;
+    GPIO_CONFIG *pin;
+
+    pin = &pinConfig[pinId];
+
+    result = adi_gpio_Toggle(pin->port, pin->pinNum);
+
+    gpio_get_pin(pinConfig, pinId);
+}
+
+void gpio_init_pins(GPIO_CONFIG *pinConfig, int numPins)
+{
+    ADI_GPIO_RESULT result;
+    GPIO_CONFIG *pin;
+    int i;
+
+    for (i = 0; i < GPIO_PIN_MAX; i++) {
+
+        /* Select the pin */
+        pin = &pinConfig[i];
+
+        /* Set the initial pin state */
+        if (pin->state) {
+            result = adi_gpio_Set(pin->port, pin->pinNum);
+        } else {
+            result = adi_gpio_Clear(pin->port, pin->pinNum);
+        }
+
+        /* Set the direction */
+        result = adi_gpio_SetDirection(pin->port, pin->pinNum, pin->dir);
+
+        /* Set the flags */
+        if (pin->flags & GPIO_FLAGS_PUE) {
+            //adi_pads_PortPullup(pin->port, pin->pinNum, true);
+        }
+    }
+}
+
 void gpio_init(void)
 {
-    static uint8_t gpioMemory[ADI_GPIO_CALLBACK_MEM_SIZE];
+    static uint8_t gpioMemory[ADI_GPIO_CALLBACK_MEM_SIZE * 16];
     uint32_t numCallbacks;
+    ADI_GPIO_RESULT result;
 
-    ADI_GPIO_RESULT  result;
+    /* Init the GPIO system service */
+    result = adi_gpio_Init(gpioMemory, sizeof(gpioMemory), &numCallbacks);
 
-    /* Configure ETH0 Alternate Function GPIO */
-    *pREG_PORTA_FER |= (
-        EMAC0_MDIO_PORTA_FER |
-        EMAC0_MDC_PORTA_FER |
-        EMAC0_RXD0_PORTA_FER |
-        EMAC0_RXD1_PORTA_FER |
-        EMAC0_TXD0_PORTA_FER |
-        EMAC0_TXD1_PORTA_FER |
-        EMAC0_RXD2_PORTA_FER |
-        EMAC0_RXD3_PORTA_FER |
-        EMAC0_TXD2_PORTA_FER |
-        EMAC0_TXD3_PORTA_FER |
-        EMAC0_TXCLK_PORTA_FER |
-        EMAC0_TXEN_PORTA_FER |
-        EMAC0_CRS_PORTA_FER |
-        EMAC0_RXCLK_REFCLK_PORTA_FER
-    );
-
-    *pREG_PORTA_MUX |= (
-        EMAC0_MDIO_PORTA_MUX |
-        EMAC0_MDC_PORTA_MUX |
-        EMAC0_RXD0_PORTA_MUX |
-        EMAC0_RXD1_PORTA_MUX |
-        EMAC0_TXD0_PORTA_MUX |
-        EMAC0_TXD1_PORTA_MUX |
-        EMAC0_RXD2_PORTA_MUX |
-        EMAC0_RXD3_PORTA_MUX |
-        EMAC0_TXD2_PORTA_MUX |
-        EMAC0_TXD3_PORTA_MUX |
-        EMAC0_TXCLK_PORTA_MUX |
-        EMAC0_TXEN_PORTA_MUX |
-        EMAC0_CRS_PORTA_MUX |
-        EMAC0_RXCLK_REFCLK_PORTA_MUX
-    );
 
     /* Configure SPI2 Alternate Function GPIO */
     *pREG_PORTC_FER |= (
@@ -375,6 +360,40 @@ void gpio_init(void)
         SPI2_D2_PORTC_MUX |
         SPI2_D3_PORTC_MUX |
         SPI2_SEL_PORTC_MUX
+    );
+
+    /* Configure EMAC0 Alternate Function GPIO */
+    *pREG_PORTA_FER |= (
+        EMAC0_MDIO_PORTA_FER |
+        EMAC0_MDC_PORTA_FER |
+        EMAC0_RXD0_PORTA_FER |
+        EMAC0_RXD1_PORTA_FER |
+        EMAC0_TXD0_PORTA_FER |
+        EMAC0_TXD1_PORTA_FER |
+        EMAC0_RXD2_PORTA_FER |
+        EMAC0_RXD3_PORTA_FER |
+        EMAC0_TXD2_PORTA_FER |
+        EMAC0_TXD3_PORTA_FER |
+        EMAC0_TXCLK_PORTA_FER |
+        EMAC0_TXEN_PORTA_FER |
+        EMAC0_CRS_PORTA_FER |
+        EMAC0_RXCLK_REFCLK_PORTA_FER
+    );
+    *pREG_PORTA_MUX |= (
+        EMAC0_MDIO_PORTA_MUX |
+        EMAC0_MDC_PORTA_MUX |
+        EMAC0_RXD0_PORTA_MUX |
+        EMAC0_RXD1_PORTA_MUX |
+        EMAC0_TXD0_PORTA_MUX |
+        EMAC0_TXD1_PORTA_MUX |
+        EMAC0_RXD2_PORTA_MUX |
+        EMAC0_RXD3_PORTA_MUX |
+        EMAC0_TXD2_PORTA_MUX |
+        EMAC0_TXD3_PORTA_MUX |
+        EMAC0_TXCLK_PORTA_MUX |
+        EMAC0_TXEN_PORTA_MUX |
+        EMAC0_CRS_PORTA_MUX |
+        EMAC0_RXCLK_REFCLK_PORTA_MUX
     );
 
     /* Configure UART0 Alternate Function GPIO */
@@ -416,66 +435,16 @@ void gpio_init(void)
     );
 
 
-    result = adi_gpio_Init(gpioMemory, sizeof(gpioMemory), &numCallbacks);
-
-    /* LEDs 10, 11, 12 */
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_D,
-        ADI_GPIO_PIN_1 | ADI_GPIO_PIN_2 | ADI_GPIO_PIN_3,
-        ADI_GPIO_DIRECTION_OUTPUT
-    );
-
-    result = adi_gpio_Clear (
-        ADI_GPIO_PORT_D,
-        ADI_GPIO_PIN_1 | ADI_GPIO_PIN_2 | ADI_GPIO_PIN_3
-    );
-
-    /* Init Pushbuttons */
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_F,
-        ADI_GPIO_PIN_0 | ADI_GPIO_PIN_1,
-        ADI_GPIO_DIRECTION_INPUT
-    );
-
-    /* Init A2B IO7 as an Input */
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_F,
-        ADI_GPIO_PIN_13,
-        ADI_GPIO_DIRECTION_INPUT
-    );
-
-    /* Init Ethernet reset pin (leave in reset)*/
-    result = adi_gpio_Clear (
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_7
-    );
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_7,
-        ADI_GPIO_DIRECTION_OUTPUT
-    );
+    /* Configure straight GPIO */
+    gpio_init_pins(gpioPins, GPIO_PIN_MAX);
 
     /* PADS0 DAI0/1 Port Input Enable Control Register */
-    *pREG_PADS0_DAI0_IE = (unsigned int)0x001FFFFE;
-    *pREG_PADS0_DAI1_IE = (unsigned int)0x001FFFFE;
+    *pREG_PADS0_DAI0_IE = BITM_PADS_DAI0_IE_VALUE;
+    *pREG_PADS0_DAI1_IE = BITM_PADS_DAI1_IE_VALUE;
 
-    // ADAU1761 I2C Address pins set low (DAI0_5 and PORTB.6)
-    SRU(HIGH, DAI0_PBEN05_I);         // configure DAI0_P05 as an output
-    SRU(LOW, DAI0_PB05_I);            // set 1761 I2C address pins low
-#ifdef RED_BOARD
-    SRU(HIGH, DAI0_PBEN06_I);         // configure DAI0_P06 as an output
-    SRU(LOW, DAI0_PB06_I);            // set 1761 I2C address pins low
-#else
-    result = adi_gpio_SetDirection(
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_6,
-        ADI_GPIO_DIRECTION_OUTPUT
-    );
-    result = adi_gpio_Clear(
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_6
-    );
-#endif
+    /* ADAU1761 I2C Address pins set low (DAI0_5 and PORTB.6) */
+    SRU(HIGH, DAI0_PBEN05_I); SRU(LOW, DAI0_PB05_I);
+    gpio_set_pin(gpioPins, GPIO_PIN_1761_ADDR1, 0);
 }
 
 /*
@@ -483,9 +452,17 @@ void gpio_init(void)
  * higher priority (lower number) will nest with interrupts of a lower
  * priority (higher number).
  *
- * Priority can range from 0 (highest) to 15 (lowest)
+ * Priority passed to INTERRUPT_PRIO can range from 0 (highest)
+ * until the macro returns (portLOWEST_USABLE_INTERRUPT_PRIORITY - 1).
+ * portLOWEST_USABLE_INTERRUPT_PRIORITY is reserved for the timer tick
+ * interrupt.
  *
- * Currently only USB interrupts are elevated, all others are lower.
+ * USB must be higher priority than SPORTs so that USB audio is not
+ * starved during periods of high audio processing load.
+ *
+ * TWI must be higher than SPORTs so that TWI peripherals can be serviced
+ * quickly to react to TWI transaction state changes during high audio
+ * processing loads.
  *
  */
 #define INTERRUPT_PRIO(x) \
@@ -497,76 +474,88 @@ void gpio_init(void)
 void gic_init(void)
 {
     ADI_GIC_RESULT  result;
-
     result = adi_gic_Init();
-
-#ifdef FREE_RTOS
-    uint32_t saeIrq = sae_getInterruptID();
-    /*
-     * Setup peripheral interrupt priorities:
-     *   Details: FreeRTOSv9.0.0/portable/GCC/ARM_CA9/port.c (line 574)
-     *
-     * All registered system interrupts can be identified by setting a breakpoint in
-     * adi_rtl_register_dispatched_handler().
-     *
-     * Interrupts that need to call FreeRTOS functions, or that must be suspended during
-     * critical section processing, must be registered with the required interrupt priority.
-     *
-     * If you end up in vAssertCalled() from vPortValidateInterruptPriority() then
-     * the offending interrupt must be added here.  The interrupt ID (iid) can be found
-     * by looking backwards in the call stack in vApplicationIRQHandler().
-     *
-     */
     adi_gic_SetBinaryPoint(ADI_GIC_CORE_0, 0);
-    adi_gic_SetIntPriority(INTR_SPI0_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPI1_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPI2_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_TWI0_DATA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_TWI1_DATA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_TWI2_DATA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_UART0_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_UART1_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_UART2_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT0_A_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT0_B_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT1_A_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT1_B_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT2_A_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_SPORT2_B_DMA, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_MSI0_STAT, INTERRUPT_PRIO(1));
+}
 
-    /* TMR0, INTR_USB0_DATA is used for UAC2.0 */
-    adi_gic_SetIntPriority(INTR_TIMER0_TMR0, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_USB0_DATA, INTERRUPT_PRIO(0));
-    adi_gic_SetIntPriority(INTR_USB0_STAT, INTERRUPT_PRIO(0));
+/* Highest priority */
+uint32_t GIC_IRQ_PRIO_0[] = {
+    /* USB */
+    INTR_USB0_DATA,
+    INTR_USB0_STAT,
+    INTR_TIMER0_TMR0,
+    0
+};
 
-    /* TMR1 is used for lwIP tick timer */
-    adi_gic_SetIntPriority(INTR_TIMER0_TMR1, INTERRUPT_PRIO(1));
+/* Second highest priority */
+uint32_t GIC_IRQ_PRIO_1[] = {
+    /* TWI */
+    INTR_TWI0_DATA,
+    INTR_TWI1_DATA,
+    INTR_TWI2_DATA,
+    0
+};
 
-    /* SHARC Audio Engine IRQ */
-    adi_gic_SetIntPriority(saeIrq, INTERRUPT_PRIO(1));
+/* Third highest priority */
+uint32_t GIC_IRQ_PRIO_2[] = {
+    /* SAE */
+    INTR_TRU0_SLV3,
 
-    /* EMAC0 / PHY interrupts */
-    adi_gic_SetIntPriority(INTR_EMAC0_STAT, INTERRUPT_PRIO(1));
-    adi_gic_SetIntPriority(INTR_PINT4_BLOCK, INTERRUPT_PRIO(1));
+    /* SPI */
+    INTR_SPI0_STAT,
+    INTR_SPI1_STAT,
+    INTR_SPI2_STAT,
 
-    /* HADC0 interrupt */
-    adi_gic_SetIntPriority(INTR_HADC0_EVT, INTERRUPT_PRIO(1));
+    /* UART */
+    INTR_UART0_STAT,
+    INTR_UART1_STAT,
+    INTR_UART2_STAT,
 
-    /* MSI0 interrupt */
-    adi_gic_SetIntPriority(INTR_MSI0_STAT, INTERRUPT_PRIO(1));
+    /* SPORTs */
+    INTR_SPORT0_A_DMA,
+    INTR_SPORT0_B_DMA,
+    INTR_SPORT1_A_DMA,
+    INTR_SPORT1_B_DMA,
+    INTR_SPORT2_A_DMA,
+    INTR_SPORT2_B_DMA,
 
-    /* WARNING: The ADI FreeRTOS port uses TMR7 as the tick timer which must be configured as the lowest
-     *          priority interrupt.  If you're using the stock ADI v9.0.0 or v10.0.1 port, be sure to
-     *          enable the line below.  This countermeasure has been applied to the reusable module
-     *          FreeRTOS v10.2.1.
-     *
-     *    The SysTick handler needs to run at the lowest priority.  This is because the critical section
-     *    within the handler itself assumes it is running at the lowest priority, so saves time by not
-     *    saving the old priority mask and then restoring the previous priority mask.
-     */
-    //adi_gic_SetIntPriority(INTR_TIMER0_TMR7, 30 << portPRIORITY_SHIFT);
-#endif
+    /* MSI0 */
+    INTR_MSI0_STAT,
+
+    /* EMAC0 */
+    INTR_EMAC0_STAT,
+    INTR_PINT4_BLOCK,
+
+    /* HADC0 */
+    INTR_HADC0_EVT,
+
+    /* A2B IRQ */
+    INTR_PINT5_BLOCK,
+    0
+};
+
+void gic_set_irq_prio(void)
+{
+    ADI_GIC_RESULT  result;
+    unsigned idx;
+
+    idx = 0;
+    while (GIC_IRQ_PRIO_0[idx]) {
+        result = adi_gic_SetIntPriority(GIC_IRQ_PRIO_0[idx], INTERRUPT_PRIO(0));
+        idx++;
+    }
+
+    idx = 0;
+    while (GIC_IRQ_PRIO_1[idx]) {
+        result = adi_gic_SetIntPriority(GIC_IRQ_PRIO_1[idx], INTERRUPT_PRIO(1));
+        idx++;
+    }
+
+    idx = 0;
+    while (GIC_IRQ_PRIO_2[idx]) {
+        result = adi_gic_SetIntPriority(GIC_IRQ_PRIO_2[idx], INTERRUPT_PRIO(2));
+        idx++;
+    }
 }
 
 /***********************************************************************
@@ -602,7 +591,7 @@ __attribute__ ((section(".l2_uncached_data")))
 __attribute__ ((section(".l2_cached_data")))
     static uint8_t umm_l2_cached_heap[UMM_L2_CACHED_HEAP_SIZE];
 
-void heap_init(void)
+void umm_heap_init(void)
 {
     /* Initialize the cached L3 SDRAM heap (default heap). */
     umm_init(UMM_SDRAM_HEAP, umm_sdram_heap, UMM_SDRAM_HEAP_SIZE);
@@ -660,8 +649,13 @@ void cgu_ts_init(void)
 }
 
 /***********************************************************************
- * This function allocates audio buffers in L3 cached memory and
+ * This function allocates audio buffers in L2 cached memory and
  * initializes a single SPORT using the simple SPORT driver.
+ *
+ * NOTE: OUT buffers are generally marked as not cached since outbound
+ *       buffers are flushed in process_audio().  This keeps the driver
+ *       from prematurely (and redundantly) flushing the buffer when the
+ *       SPORT callback returns.
  **********************************************************************/
 static sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
     SPORT_SIMPLE_CONFIG *cfg, SPORT_SIMPLE_AUDIO_CALLBACK cb,
@@ -716,6 +710,27 @@ static sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
     return(sportHandle);
 }
 
+static void single_sport_deinit(sSPORT **sportHandle,
+    void **pingPongPtrs, unsigned *pingPongLen)
+{
+    if (sportHandle && *sportHandle) {
+        sport_close(sportHandle);
+    }
+    if (pingPongPtrs) {
+        if (pingPongPtrs[0]) {
+            umm_free_heap_aligned(UMM_SDRAM_HEAP, pingPongPtrs[0]);
+            pingPongPtrs[0] = NULL;
+        }
+        if (pingPongPtrs[1]) {
+            umm_free_heap_aligned(UMM_SDRAM_HEAP, pingPongPtrs[1]);
+            pingPongPtrs[1] = NULL;
+        }
+    }
+    if (pingPongLen) {
+        *pingPongLen = 0;
+    }
+}
+
 /***********************************************************************
  * Simple SPORT driver 8-ch TDM settings
  **********************************************************************/
@@ -731,10 +746,22 @@ SPORT_SIMPLE_CONFIG cfgTDM8x1 = {
     .frames = SYSTEM_BLOCK_SIZE,
 };
 
-/***********************************************************************
- * PCGA generates 12.288 MHz TDM8 BCLK from 24.576 MCLK/BCLK
- **********************************************************************/
-void adau1761_cfg_pcg(void)
+void disable_mclk(APP_CONTEXT *context)
+{
+    *pREG_PADS0_DAI0_IE &= ~(1 << BITP_PADS0_DAI0_IE_MCLK);
+}
+
+void enable_mclk(APP_CONTEXT *context)
+{
+    *pREG_PADS0_DAI0_IE |= (1 << BITP_PADS0_DAI0_IE_MCLK);
+}
+
+static void sru_config_mclk(APP_CONTEXT *context)
+{
+    SRU(LOW, DAI0_PBEN08_I);
+}
+
+static void pcg_init_dai0_tdm8_bclk(void)
 {
     /* Configure static PCG A parameters */
     PCG_SIMPLE_CONFIG pcg_a = {
@@ -755,21 +782,10 @@ void adau1761_cfg_pcg(void)
     pcg_enable(PCG_A, true);
 }
 
-void debug_signal_init(void)
+void mclk_init(APP_CONTEXT *context)
 {
-#if 0
-    /* Enable this code to route the I2S signals to DAI pins on the expansion
-     * header for debugging.
-     */
-    SRU(HIGH,  DAI0_PBEN14_I);
-    SRU(HIGH,  DAI0_PBEN15_I);
-    SRU(HIGH,  DAI0_PBEN16_I);
-
-    // Route select signals to higher DAI pins on expansion header for debug purposes
-    SRU(PCG0_CLKB_O, DAI0_PB14_I);
-    SRU(SPT0_AFS_O, DAI0_PB15_I);
-    SRU(SPT2_AFS_O, DAI0_PB16_I);
-#endif
+    sru_config_mclk(context);
+    pcg_init_dai0_tdm8_bclk();
 }
 
 /***********************************************************************
@@ -799,45 +815,46 @@ void adau1761_sport_init(APP_CONTEXT *context)
 {
     SPORT_SIMPLE_CONFIG sportCfg;
     SPORT_SIMPLE_RESULT sportResult;
-    unsigned len;
 
     /* SPORT0A: CODEC data out */
     sportCfg = cfgTDM8x1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_TX;
     sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_MASTER;
-    sportCfg.dataBuffersCached = false;
     memcpy(sportCfg.dataBuffers, context->codecAudioOut, sizeof(sportCfg.dataBuffers));
     context->codecSportOutHandle = single_sport_init(
         SPORT0A, &sportCfg, codecAudioOut,
-        NULL, &len, context, false, NULL
+        context->codecAudioOut, &context->codecAudioOutLen, context, false, NULL
     );
-    assert(context->codecAudioOutLen == len);
+    if (context->codecSportOutHandle) {
+        sportResult = sport_start(context->codecSportOutHandle, true);
+    }
 
 
     /* SPORT0B: CODEC data in */
     sportCfg = cfgTDM8x1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_RX;
     sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_SLAVE;
-    sportCfg.dataBuffersCached = false;
     memcpy(sportCfg.dataBuffers, context->codecAudioIn, sizeof(sportCfg.dataBuffers));
     context->codecSportInHandle = single_sport_init(
         SPORT0B, &sportCfg, codecAudioIn,
-        NULL, &len, context, false, NULL
+        context->codecAudioIn, &context->codecAudioInLen, context, true, NULL
     );
-    assert(context->codecAudioInLen == len);
-
-    /* Start SPORT0A/B */
-    sportResult = sport_start(context->codecSportOutHandle, true);
-    sportResult = sport_start(context->codecSportInHandle, true);
+    if (context->codecSportInHandle) {
+        sportResult = sport_start(context->codecSportInHandle, true);
+    }
 }
 
 void adau1761_sport_deinit(APP_CONTEXT *context)
 {
     if (context->codecSportOutHandle) {
-        sport_close(&context->codecSportOutHandle);
+        single_sport_deinit(
+            &context->codecSportOutHandle, context->codecAudioOut, &context->codecAudioOutLen
+        );
     }
     if (context->codecSportInHandle) {
-        sport_close(&context->codecSportInHandle);
+        single_sport_deinit(
+            &context->codecSportInHandle, context->codecAudioIn, &context->codecAudioInLen
+        );
     }
 }
 
@@ -846,8 +863,8 @@ void adau1761_init(APP_CONTEXT *context)
     /* Configure the DAI routing */
     sru_config_sharc_sam_adau1761_slave();
 
-    /* Configure the 1761 bit clock PCG */
-    adau1761_cfg_pcg();
+    /* Configure the TDM8 bit clock PCG */
+    pcg_init_dai0_tdm8_bclk();
 
     /* Initialize the CODEC */
     init_adau1761(context->adau1761TwiHandle, SAM_ADAU1761_I2C_ADDR);
@@ -873,8 +890,18 @@ SPORT_SIMPLE_CONFIG cfgI2Sx1 = {
     .frames = SYSTEM_BLOCK_SIZE,
 };
 
+/* PCGA generates 12.288 MHz CLK from 24.576 MCLK/BCLK */
+static void spdif_cfg_hfclk(void)
+{
+/*
+ * The SPDIF HFCLK is derived from the TDM8 clock used
+ * for the 1761 CODEC coming from PCG0_CLKA_O
+ *
+ */
+}
+
 /* PCGB generates 3.072 MHz I2S BCLK from 24.576 MCLK/BCLK */
-void spdif_cfg_pcg(void)
+static void spdif_cfg_bclk(void)
 {
     /* Configure static PCG A parameters */
     PCG_SIMPLE_CONFIG pcg_b = {
@@ -896,10 +923,8 @@ void spdif_cfg_pcg(void)
 }
 
 /*
- * WARNING: The SPDIF HFCLK is derived from the TDM8 clock used
- *          for the 1761 CODEC coming from PCG0_CLKA_O
- *
- * WARNING: The SPDIF BCLK is derived from the PCG0_CLKB_O
+ * The SPDIF HFCLK is derived from PCG0_CLKA_O
+ * The SPDIF BCLK is derived from PCG0_CLKB_O
  *
  */
 static void spdif_sru_config(void)
@@ -935,51 +960,53 @@ static void spdif_sru_config(void)
     SRU(SPT2_AD0_O,  SPDIF0_TX_DAT_I);    // SPT2A AD0 output to SPDIF TX data pin
 }
 
-void spdif_sport_deinit(APP_CONTEXT *context)
-{
-    if (context->spdifSportOutHandle) {
-        sport_close(&context->spdifSportOutHandle);
-    }
-    if (context->spdifSportInHandle) {
-        sport_close(&context->spdifSportInHandle);
-    }
-}
-
-void spdif_sport_init(APP_CONTEXT *context)
+static void spdif_sport_init(APP_CONTEXT *context)
 {
     SPORT_SIMPLE_CONFIG sportCfg;
     SPORT_SIMPLE_RESULT sportResult;
-    unsigned len;
 
     /* SPORT2A: SPDIF data out */
     sportCfg = cfgI2Sx1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_TX;
-    sportCfg.dataBuffersCached = false;
     memcpy(sportCfg.dataBuffers, context->spdifAudioOut, sizeof(sportCfg.dataBuffers));
     context->spdifSportOutHandle = single_sport_init(
         SPORT2A, &sportCfg, spdifAudioOut,
-        NULL, &len, context, false, NULL
+        context->spdifAudioOut, &context->spdifAudioOutLen, context, false, NULL
     );
-    assert(context->spdifAudioOutLen == len);
-
+    if (context->spdifSportOutHandle) {
+        sportResult = sport_start(context->spdifSportOutHandle, true);
+    }
 
     /* SPORT2B: SPDIF data in */
     sportCfg = cfgI2Sx1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_RX;
-    sportCfg.dataBuffersCached = false;
     memcpy(sportCfg.dataBuffers, context->spdifAudioIn, sizeof(sportCfg.dataBuffers));
     context->spdifSportInHandle = single_sport_init(
         SPORT2B, &sportCfg, spdifAudioIn,
-        NULL, &len, context, false, NULL
+        context->spdifAudioIn, &context->spdifAudioInLen, context, true, NULL
     );
-    assert(context->spdifAudioInLen == len);
-
-    /* Start SPORT0A/B */
-    sportResult = sport_start(context->spdifSportOutHandle, true);
-    sportResult = sport_start(context->spdifSportInHandle, true);
+    if (context->spdifSportInHandle) {
+        sportResult = sport_start(context->spdifSportInHandle, true);
+    }
 }
 
-void spdif_asrc_init(void)
+static void spdif_sport_deinit(APP_CONTEXT *context)
+{
+    if (context->spdifSportOutHandle) {
+        single_sport_deinit(
+            &context->spdifSportOutHandle, context->spdifAudioOut, &context->spdifAudioOutLen
+        );
+        clock_domain_clr_active(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SPDIF_OUT);
+    }
+    if (context->spdifSportInHandle) {
+        single_sport_deinit(
+            &context->spdifSportInHandle, context->spdifAudioIn, &context->spdifAudioInLen
+        );
+        clock_domain_clr_active(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SPDIF_IN);
+    }
+}
+
+static void spdif_asrc_init(void)
 {
     // Configure and enable SRC 0/1
     *pREG_ASRC0_CTL01 =
@@ -1012,8 +1039,9 @@ void spdif_init(APP_CONTEXT *context)
     /* Configure the DAI routing */
     spdif_sru_config();
 
-    /* Initialize the SPDIF HFCLK PCG */
-    spdif_cfg_pcg();
+    /* Initialize the SPDIF BCLK and HFCLK PCGs */
+    spdif_cfg_bclk();
+    spdif_cfg_hfclk();
 
     /* Initialize the SPDIF and ASRC modules */
     spdif_asrc_init();
@@ -1023,40 +1051,57 @@ void spdif_init(APP_CONTEXT *context)
 }
 
 /***********************************************************************
- * AD2425 / SPORT1 / SRU initialization
+ * A2B Generic functions
  **********************************************************************/
+#include "a2b_irq.h"
+#include "a2b_to_sport_cfg.h"
 
-static void ad2425_disconnect_master_clocks(void)
+/***********************************************************************
+ * A2B (Main/Sub) / SPORT1 / SRU / IRQ initialization
+ **********************************************************************/
+void a2b_pint_init(APP_CONTEXT *context)
 {
-    // Set A2B BCLK LOW
-    SRU(LOW, DAI0_PB07_I);
-    // Set A2B FS LOW
-    SRU(LOW, DAI0_PB08_I);
-}
+    ADI_GPIO_RESULT result;
+    uint32_t pint5pins = 0x00000000;
 
-static void ad2425_connect_master_clocks(void)
-{
-    // Route BCLK to A2B BCLK
-#ifdef RED_BOARD
-    SRU(DAI0_PB13_O, DAI0_PB07_I);
-#else
-    SRU(DAI0_PB06_O, DAI0_PB07_I);
-#endif
-    // Route FS to A2B SYNC
-    SRU(SPT1_AFS_O, DAI0_PB08_I);
-}
+    /* Don't wire in interrupts if no A2B */
+    if (!context->a2bPresent) {
+        return;
+    }
 
-static void ad2425_disconnect_slave_clocks(void)
-{
-    *pREG_PADS0_DAI0_IE &= ~(
-        BITP_PADS0_DAI0_IE_PB07 | BITP_PADS0_DAI0_IE_PB08
+    /*
+     * This code must match the values in a2b_irq.h
+     * WARNING: Ethernet PHY interrupt uses PINT4
+     */
+    assert(A2B1_PINT_IRQ == ADI_GPIO_PIN_INTERRUPT_5);
+    assert(A2B1_PINT_PIN == ADI_GPIO_INT_PIN_7);
+
+    /*
+     * A2B: Port F.7 -> PINT5 Byte 0.7
+     */
+    pint5pins |= ADI_GPIO_INT_PIN_7;
+
+    /* Map Pins PF.0-PF.7 to PINT5 Byte 0 */
+    result = adi_gpio_PinInterruptAssignment(
+        ADI_GPIO_PIN_INTERRUPT_5,
+        ADI_GPIO_PIN_ASSIGN_BYTE_0,
+        ADI_GPIO_PIN_ASSIGN_PFL_PINT5
     );
-}
-
-static void ad2425_connect_slave_clocks(void)
-{
-    *pREG_PADS0_DAI0_IE |= (
-        BITP_PADS0_DAI0_IE_PB07 | BITP_PADS0_DAI0_IE_PB08
+    result = adi_gpio_SetPinIntEdgeSense(
+        ADI_GPIO_PIN_INTERRUPT_5,
+        pint5pins,
+        ADI_GPIO_SENSE_RISING_EDGE
+    );
+    result = adi_gpio_RegisterCallback(
+        ADI_GPIO_PIN_INTERRUPT_5,
+        pint5pins,
+        a2b_irq,
+        context
+    );
+    result = adi_gpio_EnablePinInterruptMask(
+        ADI_GPIO_PIN_INTERRUPT_5,
+        pint5pins,
+        true
     );
 }
 
@@ -1065,10 +1110,6 @@ static void ad2425_connect_slave_clocks(void)
  * A2B Master Mode Configuration:
  *    - MCLK/BCLK to SPORT1B/A2B Transceiver
  *    - SPORT1A FS to SPORT1B/A2B Transceiver
- *
- * NOTE: This function does not connect the A2B transceiver FS and BCLK.
- *       That happens in ad2425_connect_clocks().
- *
  */
 void sru_config_a2b_master(void)
 {
@@ -1081,15 +1122,12 @@ void sru_config_a2b_master(void)
     SRU(HIGH,  DAI0_PBEN12_I);        // DRX1 is always an output (to A2B bus)
 
     // BCLK/MCLK to SPORTA/B CLK */
-#ifdef RED_BOARD
-    SRU(DAI0_PB13_O, SPT1_ACLK_I);     // route MCLK/BCLK to SPORT1A
-    SRU(DAI0_PB13_O, SPT1_BCLK_I);     // route MCLK/BCLK to SPORT1B
-#else
+    SRU(DAI0_PB06_O, DAI0_PB07_I);     // route MCLK/BCLK to A2B
     SRU(DAI0_PB06_O, SPT1_ACLK_I);     // route MCLK/BCLK to SPORT1A
     SRU(DAI0_PB06_O, SPT1_BCLK_I);     // route MCLK/BCLK to SPORT1B
-#endif
 
     // SPORT1A FS to SPORT1B FS */
+    SRU(SPT1_AFS_O, DAI0_PB08_I);    // route SPORT1A FS to A2B
     SRU(SPT1_AFS_O, SPT1_BFS_I);      // route SPORT1A FS to SPORT1B
 
     // Connect A2B data signals to SPORT1
@@ -1131,102 +1169,123 @@ void sru_config_a2b_slave(void)
     SRU(DAI0_PB10_O, SPT1_BD1_I);     // route A2B DTX1 to SPORT1B data RX secondary
 }
 
+#define AD242X_PRODUCT             0x03u
+
+A2B_TO_SPORT_CFG_XCVR a2b_product(sTWI *twi, uint8_t twiAddr)
+{
+    TWI_SIMPLE_RESULT result;
+    A2B_TO_SPORT_CFG_XCVR xcvr;
+    uint8_t wBuf[1];
+    uint8_t rBuf[1];
+
+    wBuf[0] = AD242X_PRODUCT;
+
+    result = twi_writeRead(twi, twiAddr, wBuf, sizeof(wBuf),
+        rBuf, sizeof(rBuf));
+
+    if (result != TWI_SIMPLE_SUCCESS) {
+        return(A2B_TO_SPORT_CFG_XCVR_UNKNOWN);
+    }
+
+    switch (rBuf[0] & 0xF0) {
+        case 0x10:
+            xcvr = A2B_TO_SPORT_CFG_XCVR_AD241x;
+            break;
+        case 0x20:
+            xcvr = A2B_TO_SPORT_CFG_XCVR_AD242x;
+            break;
+        case 0x30:
+            xcvr = A2B_TO_SPORT_CFG_XCVR_AD243x;
+            break;
+        default:
+            xcvr = A2B_TO_SPORT_CFG_XCVR_UNKNOWN;
+            break;
+    }
+
+    return(xcvr);
+}
+
 #define AD242X_CONTROL             0x12u
 #define AD242X_CONTROL_SOFTRST     0x04u
 #define AD242X_CONTROL_MSTR        0x80u
 
 /* Soft reset a single transceiver */
-bool ad2425_restart(APP_CONTEXT *context)
+bool a2b_restart(APP_CONTEXT *context)
 {
     TWI_SIMPLE_RESULT result;
     uint8_t wBuf[2];
 
     wBuf[0] = AD242X_CONTROL;
     wBuf[1] = AD242X_CONTROL_SOFTRST;
-    if (context->a2bmode == A2B_BUS_MODE_MAIN) {
+    if (context->a2bmode != A2B_BUS_MODE_SUB) {
         wBuf[1] |= AD242X_CONTROL_MSTR;
     }
 
-    result = twi_write(context->ad2425TwiHandle, AD2425W_SAM_I2C_ADDR,
+    result = twi_write(context->a2bTwiHandle, context->cfg.a2bI2CAddr,
         wBuf, sizeof(wBuf));
 
     delay(10);
 
+    context->a2bxcvr = a2b_product(context->a2bTwiHandle, context->cfg.a2bI2CAddr);
+    if (context->a2bxcvr == A2B_TO_SPORT_CFG_XCVR_UNKNOWN) {
+        result = TWI_SIMPLE_ERROR;
+    }
+
     return(result == TWI_SIMPLE_SUCCESS);
 }
 
-void ad2425_reset(APP_CONTEXT *context)
+void a2b_reset(APP_CONTEXT *context)
 {
-#if 0
-    // Idle A2B SYNC pin for at least 1mS to reset transceiver */
-    ad2425_disconnect_master_clocks();
-    delay(2);
-    ad2425_connect_master_clocks();
-    delay(2);
-    UNUSED(context);
-#else
-    ad2425_restart(context);
-#endif
+    a2b_restart(context);
 }
 
-void sportCfg2ipcMsg(SPORT_SIMPLE_CONFIG *sportCfg, unsigned dataLen, IPC_MSG *msg)
-{
-    msg->audio.wordSize = sportCfg->wordSize / 8;
-    msg->audio.numChannels = dataLen / (sportCfg->frames * msg->audio.wordSize);
-}
-
-bool ad2425_sport_init(APP_CONTEXT *context,
+bool a2b_sport_init(APP_CONTEXT *context,
     bool master, CLOCK_DOMAIN clockDomain, uint8_t I2SGCFG, uint8_t I2SCFG,
     bool verbose)
 {
     SPORT_SIMPLE_CONFIG sportCfg;
     SPORT_SIMPLE_RESULT sportResult;
     bool sportCfgOk;
-    IPC_MSG *msg;
     bool rxtx;
-    int i;
 
-    /* Calculate the SPORT0A TX configuration */
+    /* Calculate the SPORT1 TX configuration */
     memset(&sportCfg, 0, sizeof(sportCfg));
     rxtx = false;
-    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG,
-        &sportCfg, verbose, A2B_TO_SPORT_CFG_XCVR_AD242x);
+    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG, &sportCfg, verbose, context->a2bxcvr);
     if (!sportCfgOk) {
         goto abort;
     }
+    sportCfg.frames = SYSTEM_BLOCK_SIZE;
+    sportCfg.fs = SYSTEM_SAMPLE_RATE;
     sportCfg.clkDir = SPORT_SIMPLE_CLK_DIR_SLAVE;
+
+    /* Configure SPORT1 Tx */
     if (master) {
         sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_MASTER;
     } else {
         sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_SLAVE;
     }
-    sportCfg.frames = SYSTEM_BLOCK_SIZE;
-    sportCfg.fs = SYSTEM_SAMPLE_RATE;
-    sportCfg.dataBuffersCached = false;
     memcpy(sportCfg.dataBuffers, context->a2bAudioOut, sizeof(sportCfg.dataBuffers));
     context->a2bSportOutHandle = single_sport_init(
         SPORT1A, &sportCfg, a2bAudioOut,
-        NULL, &context->a2bAudioOutLen, context, false, &sportResult
+        context->a2bAudioOut, &context->a2bAudioOutLen, context, false, &sportResult
     );
     if (sportResult == SPORT_SIMPLE_SUCCESS) {
-        for (i = 0; i < 2; i++) {
-            msg = (IPC_MSG *)sae_getMsgBufferPayload(context->a2bMsgOut[i]);
-            sportCfg2ipcMsg(&sportCfg, context->a2bAudioOutLen, msg);
-        }
+        context->a2bOutChannels = context->a2bAudioOutLen / (sportCfg.frames * (sportCfg.wordSize/8));
         clock_domain_set(context, clockDomain, CLOCK_DOMAIN_BITM_A2B_OUT);
         sportResult = sport_start(context->a2bSportOutHandle, true);
     } else {
         if (context->a2bSportOutHandle) {
             sport_close(&context->a2bSportOutHandle);
         }
+        context->a2bOutChannels = 0;
         clock_domain_set(context, CLOCK_DOMAIN_MAX, CLOCK_DOMAIN_BITM_A2B_OUT);
     }
 
     /* Calculate the SPORT0B RX configuration */
     memset(&sportCfg, 0, sizeof(sportCfg));
     rxtx = true;
-    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG,
-        &sportCfg, verbose, A2B_TO_SPORT_CFG_XCVR_AD242x);
+    sportCfgOk = a2b_to_sport_cfg(master, rxtx, I2SGCFG, I2SCFG, &sportCfg, verbose, context->a2bxcvr);
     if (!sportCfgOk) {
         goto abort;
     }
@@ -1234,23 +1293,22 @@ bool ad2425_sport_init(APP_CONTEXT *context,
     sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_SLAVE;
     sportCfg.frames = SYSTEM_BLOCK_SIZE;
     sportCfg.fs = SYSTEM_SAMPLE_RATE;
-    sportCfg.dataBuffersCached = false;
+
+    /* Configure SPORT1 Rx */
     memcpy(sportCfg.dataBuffers, context->a2bAudioIn, sizeof(sportCfg.dataBuffers));
     context->a2bSportInHandle = single_sport_init(
         SPORT1B, &sportCfg, a2bAudioIn,
-        NULL, &context->a2bAudioInLen, context, false, &sportResult
+        context->a2bAudioIn, &context->a2bAudioInLen, context, true, &sportResult
     );
     if (sportResult == SPORT_SIMPLE_SUCCESS) {
-        for (i = 0; i < 2; i++) {
-            msg = (IPC_MSG *)sae_getMsgBufferPayload(context->a2bMsgIn[i]);
-            sportCfg2ipcMsg(&sportCfg, context->a2bAudioInLen, msg);
-        }
+        context->a2bInChannels = context->a2bAudioInLen / (sportCfg.frames * (sportCfg.wordSize/8));
         clock_domain_set(context, clockDomain, CLOCK_DOMAIN_BITM_A2B_IN);
         sportResult = sport_start(context->a2bSportInHandle, true);
     } else {
         if (context->a2bSportInHandle) {
             sport_close(&context->a2bSportInHandle);
         }
+        context->a2bInChannels = 0;
         clock_domain_set(context, CLOCK_DOMAIN_MAX, CLOCK_DOMAIN_BITM_A2B_IN);
     }
 
@@ -1258,35 +1316,55 @@ abort:
     return(sportCfgOk);
 }
 
-bool ad2425_sport_deinit(APP_CONTEXT *context)
+bool a2b_sport_deinit(APP_CONTEXT *context)
 {
-    if (context->a2bSportOutHandle) {
-        sport_close(&context->a2bSportOutHandle);
-    }
-    if (context->a2bSportInHandle) {
-        sport_close(&context->a2bSportInHandle);
-    }
+    single_sport_deinit(
+        &context->a2bSportOutHandle, context->a2bAudioOut, &context->a2bAudioOutLen
+    );
+    clock_domain_clr_active(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_A2B_OUT);
+    single_sport_deinit(
+        &context->a2bSportInHandle, context->a2bAudioIn, &context->a2bAudioInLen
+    );
+    clock_domain_clr_active(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_A2B_IN);
     return(true);
 }
 
-bool ad2425_init_master(APP_CONTEXT *context)
+bool a2b_master_init(APP_CONTEXT *context)
 {
     bool ok;
 
+    /* Don't enable if no A2B */
+    if (!context->a2bPresent) {
+        return(false);
+    }
+
     sru_config_a2b_master();
 
-    ok = ad2425_sport_init(context, true, CLOCK_DOMAIN_SYSTEM,
+    ok = a2b_sport_init(context, true, CLOCK_DOMAIN_SYSTEM,
         SYSTEM_I2SGCFG, SYSTEM_I2SCFG, false);
     if (ok) {
         context->a2bmode = A2B_BUS_MODE_MAIN;
         context->a2bSlaveActive = false;
-        ad2425_connect_master_clocks();
     }
 
     return(ok);
 }
 
-bool ad2425_init_slave(APP_CONTEXT *context)
+static void a2b_disconnect_slave_clocks(void)
+{
+    *pREG_PADS0_DAI0_IE &= ~(
+        BITP_PADS0_DAI0_IE_PB07 | BITP_PADS0_DAI0_IE_PB08
+    );
+}
+
+static void a2b_connect_slave_clocks(void)
+{
+    *pREG_PADS0_DAI0_IE |= (
+        BITP_PADS0_DAI0_IE_PB07 | BITP_PADS0_DAI0_IE_PB08
+    );
+}
+
+bool a2b_init_slave(APP_CONTEXT *context)
 {
     sru_config_a2b_slave();
 
@@ -1303,119 +1381,60 @@ bool ad2425_init_slave(APP_CONTEXT *context)
     return(true);
 }
 
-bool ad2425_set_mode(APP_CONTEXT *context, A2B_BUS_MODE mode)
+bool a2b_set_mode(APP_CONTEXT *context, A2B_BUS_MODE mode)
 {
     if (mode == context->a2bmode) {
         return(true);
     }
 
-    ad2425_sport_deinit(context);
+    a2b_sport_deinit(context);
 
     if (mode == A2B_BUS_MODE_SUB) {
-        ad2425_init_slave(context);
+        a2b_init_slave(context);
     } else {
         adau1761_sport_deinit(context);
         spdif_sport_deinit(context);
-        disable_sport_mclk(context);
+        disable_mclk(context);
         adau1761_sport_init(context);
         spdif_sport_init(context);
-        ad2425_init_master(context);
-        enable_sport_mclk(context);
+        a2b_master_init(context);
+        enable_mclk(context);
     }
 
-    ad2425_restart(context);
+    a2b_restart(context);
 
     return(true);
 }
 
-bool ad2425_sport_start(APP_CONTEXT *context, uint8_t I2SGCFG, uint8_t I2SCFG)
+bool a2b_sport_start(APP_CONTEXT *context, uint8_t I2SGCFG, uint8_t I2SCFG)
 {
     bool ok;
-    ok = ad2425_sport_init(context, false, CLOCK_DOMAIN_A2B,
+    ok = a2b_sport_init(context, false, CLOCK_DOMAIN_A2B,
         I2SGCFG, I2SCFG, true);
-    ad2425_connect_slave_clocks();
+    a2b_connect_slave_clocks();
     return(ok);
 }
 
-bool ad2425_sport_stop(APP_CONTEXT *context)
+bool a2b_sport_stop(APP_CONTEXT *context)
 {
     bool ok;
-    ok = ad2425_sport_deinit(context);
-    ad2425_disconnect_slave_clocks();
+    ok = a2b_sport_deinit(context);
+    a2b_disconnect_slave_clocks();
     return(ok);
 }
 
-/***********************************************************************
- * Ethernet HW init
+/**********************************************************************
+ * Ethernet initialization
  **********************************************************************/
-int sam_hw_version(APP_CONTEXT *context)
-{
-    TWI_SIMPLE_RESULT twiResult;
-    sTWI *twiHandle;
-    int version;
-
-    /* Probe for the SiLabs clock generator */
-    twiHandle = context->ethClkTwiHandle;
-    twiResult = twi_write(twiHandle, 0x70, NULL, 0);
-    if (twiResult == TWI_SIMPLE_SUCCESS) {
-        version = SAM_VERSION_1;
-    } else {
-        version = SAM_VERSION_2;
-    }
-
-    return(version);
-}
-
-
-/* This function sets the Ethernet clock generator output to 25MHz.
- * HW Version 1.3 and lower defaulted to 50MHz.
- */
-static void ether_clk_25MHz(APP_CONTEXT *context)
-{
-    TWI_SIMPLE_RESULT twiResult;
-    sTWI *twiHandle;
-    uint8_t twiOut[2];
-
-    /* Fixed clocks on SAM V2 */
-    if (context->samVersion >= SAM_VERSION_2) {
-        return;
-    }
-
-    twiHandle = context->ethClkTwiHandle;
-
-    twiOut[0] = 0xE6; twiOut[1] = 0x02;
-    twiResult = twi_write(twiHandle, 0x70, twiOut, sizeof(twiOut));
-    twiOut[0] = 0xF1; twiOut[1] = 0x65;
-    twiResult = twi_write(twiHandle, 0x70, twiOut, sizeof(twiOut));
-    twiOut[0] = 0x41; twiOut[1] = 0x2A;
-    twiResult = twi_write(twiHandle, 0x70, twiOut, sizeof(twiOut));
-    twiOut[0] = 0xE6; twiOut[1] = 0x00;
-    twiResult = twi_write(twiHandle, 0x70, twiOut, sizeof(twiOut));
-}
-
 /* This function resets the Ethernet phy */
-static void ether_phy_reset(void)
+static void eth_emac0_init(APP_CONTEXT *context)
 {
-    ADI_GPIO_RESULT  result;
-
-    /* Assert reset */
-    result = adi_gpio_Clear (
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_7
-    );
+    /* Reset PHY */
+    gpio_set_pin(gpioPins, GPIO_PIN_ETH0_RESET, 0);
+    delay(10);
+    gpio_set_pin(gpioPins, GPIO_PIN_ETH0_RESET, 1);
     delay(10);
 
-    /* Deassert reset */
-    result = adi_gpio_Set (
-        ADI_GPIO_PORT_B,
-        ADI_GPIO_PIN_7
-    );
-    delay(10);
-}
-
-/* This function enables the EMAC0 peripheral */
-static void initEMAC0(void)
-{
     /* Select RGMII for EMAC0 */
     *pREG_PADS0_PCFG0 &= ~(BITM_PADS_PCFG0_EMACPHYISEL);
     *pREG_PADS0_PCFG0 |= (1 << BITP_PADS_PCFG0_EMACPHYISEL);
@@ -1429,28 +1448,10 @@ static void initEMAC0(void)
     }
 }
 
-void emac0_phy_init(APP_CONTEXT *context)
+void eth_hardware_init(APP_CONTEXT *context)
 {
-    /* Set the Ethernet clock to 25MHz */
-    ether_clk_25MHz(context);
-
-    /* Take the Ethernet PHY out of reset */
-    ether_phy_reset();
-
-    /* Init EMAC0 hardware */
-    initEMAC0();
-}
-
-void system_reset(APP_CONTEXT *context)
-{
-    /*
-     * The ISSI flash must be put back to 3 byte address mode to boot.
-     * The Micron flash never leaves 3 byte mode.
-     */
-    is25lp_close(context->flashHandle);
-    taskENTER_CRITICAL();
-    *pREG_RCU0_CTL = BITM_RCU_CTL_SYSRST | BITM_RCU_CTL_RSTOUTASRT;
-    while(1);
+    ether_clk_25_mhz(context);
+    eth_emac0_init(context);
 }
 
 /***********************************************************************
@@ -1500,194 +1501,102 @@ static SAE_MSG_BUFFER *allocateIpcAudioMsg(APP_CONTEXT *context,
  * sae_buffer_init()
  *
  * Allocates and configures all of the SAE message/audio ping/pong
- * buffers between the ARM and SHARC0 and SHARC1.  Audio DMA buffers
- * are sent by reference from the ARM to the SHARCs
+ * buffers between the ARM and SHARC0 and SHARC1.
  *
- * These buffers can be referenced and used locally through the
- * context->xxxAudioIn/Out[] ping/pong buffers and sent/received via
- * the IPC message buffers context->xxxMsgIn/Out[].
+ * The audio data payload can be referenced and used locally on the ARM
+ * through context->xxxAudioIn/Out[] ping/pong buffers.  The audio can
+ * be sent/received via the IPC message buffers context->xxxMsgIn/Out[].
  *
  */
 void sae_buffer_init(APP_CONTEXT *context)
 {
-    APP_CFG *cfg = &context->cfg;
     int i;
 
     /* Allocate and initialize audio IPC ping/pong message buffers */
     for (i = 0; i < 2; i++) {
 
-        /* CODEC Audio In */
-        context->codecAudioInLen =
-            CODEC_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->codecMsgIn[i] = allocateIpcAudioMsg(
-            context, context->codecAudioInLen,
-            IPC_STREAMID_CODEC_IN, CODEC_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->codecAudioIn[i]
+        /* SHARC0 Audio In (SHARC0 -> ARM) */
+        context->sharc0AudioInLen =
+            SHARC0_AUDIO_IN_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+        context->sharc0MsgIn[i] = allocateIpcAudioMsg(
+            context, context->sharc0AudioInLen,
+            IPC_STREAMID_SHARC0_IN, SHARC0_AUDIO_IN_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+            &context->sharc0AudioIn[i]
         );
-        memset(context->codecAudioIn[i], 0, context->codecAudioInLen);
+        memset(context->sharc0AudioIn[i], 0, context->sharc0AudioInLen);
 
-        /* CODEC Audio Out */
-        context->codecAudioOutLen =
-            CODEC_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->codecMsgOut[i] = allocateIpcAudioMsg(
-            context, context->codecAudioOutLen,
-            IPC_STREAMID_CODEC_OUT, CODEC_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->codecAudioOut[i]
+        /* SHARC0 Audio Out (ARM -> SHARC0 */
+        context->sharc0AudioOutLen =
+            SHARC0_AUDIO_OUT_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+        context->sharc0MsgOut[i] = allocateIpcAudioMsg(
+            context, context->sharc0AudioOutLen,
+            IPC_STREAMID_SHARC0_OUT, SHARC0_AUDIO_OUT_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+            &context->sharc0AudioOut[i]
         );
-        memset(context->codecAudioOut[i], 0, context->codecAudioOutLen);
+        memset(context->sharc0AudioOut[i], 0, context->sharc0AudioOutLen);
 
-        /* SPDIF Audio In */
-        context->spdifAudioInLen =
-            SPDIF_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->spdifMsgIn[i] = allocateIpcAudioMsg(
-            context, context->spdifAudioInLen,
-            IPC_STREAMID_SPDIF_IN, SPDIF_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->spdifAudioIn[i]
+        /* SHARC1 Audio In (SHARC0 -> ARM) */
+        context->sharc1AudioInLen =
+            SHARC1_AUDIO_IN_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+        context->sharc1MsgIn[i] = allocateIpcAudioMsg(
+            context, context->sharc1AudioInLen,
+            IPC_STREAMID_SHARC1_IN, SHARC1_AUDIO_IN_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+            &context->sharc1AudioIn[i]
         );
-        memset(context->spdifAudioIn[i], 0, context->spdifAudioInLen);
+        memset(context->sharc1AudioIn[i], 0, context->sharc1AudioInLen);
 
-        /* SPDIF Audio Out */
-        context->spdifAudioOutLen =
-            SPDIF_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->spdifMsgOut[i] = allocateIpcAudioMsg(
-            context, context->spdifAudioOutLen,
-            IPC_STREAMID_SPDIF_OUT, SPDIF_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->spdifAudioOut[i]
+        /* SHARC1 Audio Out (ARM -> SHARC1 */
+        context->sharc1AudioOutLen =
+            SHARC1_AUDIO_OUT_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
+        context->sharc1MsgOut[i] = allocateIpcAudioMsg(
+            context, context->sharc1AudioOutLen,
+            IPC_STREAMID_SHARC1_OUT, SHARC1_AUDIO_OUT_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
+            &context->sharc1AudioOut[i]
         );
-        memset(context->spdifAudioOut[i], 0, context->spdifAudioOutLen);
-
-        /* A2B Audio In */
-        context->a2bAudioInLen =
-            A2B_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->a2bMsgIn[i] = allocateIpcAudioMsg(
-            context, context->a2bAudioInLen,
-            IPC_STREAMID_A2B_IN, A2B_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->a2bAudioIn[i]
-        );
-        memset(context->a2bAudioIn[i], 0, context->a2bAudioInLen);
-
-        /* A2B Audio Out */
-        context->a2bAudioOutLen =
-            A2B_DMA_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-        context->a2bMsgOut[i] = allocateIpcAudioMsg(
-            context, context->a2bAudioOutLen,
-            IPC_STREAMID_A2B_OUT, A2B_DMA_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-            &context->a2bAudioOut[i]
-        );
-        memset(context->a2bAudioOut[i], 0, context->a2bAudioOutLen);
-
-        /* Only need one buffer for the rest of these (no ping/pong) */
-        if (i == 0) {
-            /* USB Audio Rx */
-            context->usbAudioRxLen =
-                cfg->usbOutChannels * cfg->usbWordSize * SYSTEM_BLOCK_SIZE;
-            context->usbMsgRx[i] = allocateIpcAudioMsg(
-                context, context->usbAudioRxLen,
-                IPC_STREAMID_USB_RX, cfg->usbOutChannels, cfg->usbWordSize,
-                &context->usbAudioRx[i]
-            );
-            memset(context->usbAudioRx[i], 0, context->usbAudioRxLen);
-
-            /* USB Audio Tx */
-            context->usbAudioTxLen =
-                cfg->usbInChannels * cfg->usbWordSize * SYSTEM_BLOCK_SIZE;
-            context->usbMsgTx[i] = allocateIpcAudioMsg(
-                context, context->usbAudioTxLen,
-                IPC_STREAMID_USB_TX, cfg->usbInChannels, cfg->usbWordSize,
-                &context->usbAudioTx[i]
-            );
-            memset(context->usbAudioTx[i], 0, context->usbAudioTxLen);
-
-            /* WAV Audio Src */
-            context->wavAudioSrcLen =
-                WAV_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->wavMsgSrc[i] = allocateIpcAudioMsg(
-                context, context->wavAudioSrcLen,
-                IPC_STREAM_ID_WAV_SRC, WAV_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->wavAudioSrc[i]
-            );
-            memset(context->wavAudioSrc[i], 0, context->wavAudioSrcLen);
-
-            /* WAV Audio Sink */
-            context->wavAudioSinkLen =
-                WAV_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->wavMsgSink[i] = allocateIpcAudioMsg(
-                context, context->wavAudioSinkLen,
-                IPC_STREAM_ID_WAV_SINK, WAV_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->wavAudioSink[i]
-            );
-            memset(context->wavAudioSink[i], 0, context->wavAudioSinkLen);
-
-            /* RTP Audio Rx */
-            context->rtpAudioRxLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->rtpMsgRx[i] = allocateIpcAudioMsg(
-                context, context->rtpAudioRxLen,
-                IPC_STREAM_ID_RTP_RX, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->rtpAudioRx[i]
-            );
-            memset(context->rtpAudioRx[i], 0, context->rtpAudioRxLen);
-
-            /* RTP Audio Tx */
-            context->rtpAudioTxLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->rtpMsgTx[i] = allocateIpcAudioMsg(
-                context, context->rtpAudioTxLen,
-                IPC_STREAM_ID_RTP_TX, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->rtpAudioTx[i]
-            );
-            memset(context->rtpAudioTx[i], 0, context->rtpAudioTxLen);
-
-            /* VBAN Audio Rx */
-            context->vbanAudioRxLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->vbanMsgRx[i] = allocateIpcAudioMsg(
-                context, context->vbanAudioRxLen,
-                IPC_STREAM_ID_VBAN_RX, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->vbanAudioRx[i]
-            );
-            memset(context->vbanAudioRx[i], 0, context->vbanAudioRxLen);
-
-            /* VBAN Audio Tx */
-            context->vbanAudioTxLen =
-                SYSTEM_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE) * SYSTEM_BLOCK_SIZE;
-            context->vbanMsgTx[i] = allocateIpcAudioMsg(
-                context, context->vbanAudioTxLen,
-                IPC_STREAM_ID_VBAN_TX, SYSTEM_MAX_CHANNELS, sizeof(SYSTEM_AUDIO_TYPE),
-                &context->vbanAudioTx[i]
-            );
-            memset(context->vbanAudioTx[i], 0, context->vbanAudioTxLen);
-
-        }
-
+        memset(context->sharc1AudioOut[i], 0, context->sharc1AudioOutLen);
     }
 }
 
 /*
  * audio_routing_init()
- *
- * Allocates and configures the audio routing array message for use
- * with the SAE.
- *
  */
 void audio_routing_init(APP_CONTEXT *context)
 {
-    SAE_CONTEXT *saeContext = context->saeContext;
-    IPC_MSG *msg;
-    unsigned msgSize;
+    context->routingTable = calloc(MAX_AUDIO_ROUTES, sizeof(ROUTE_INFO));
+}
 
-    /* Create an IPC message large enough to hold the routing table */
-    msgSize = sizeof(*msg) +
-        (MAX_AUDIO_ROUTES - 1) * sizeof(ROUTE_INFO);
+/**********************************************************************
+ * SAM HW probe
+ **********************************************************************/
+int sam_hw_version(APP_CONTEXT *context)
+{
+    TWI_SIMPLE_RESULT twiResult;
+    sTWI *twiHandle;
+    int version;
 
-    /* Allocate a message buffer */
-    context->routingMsgBuffer = sae_createMsgBuffer(
-        saeContext, msgSize, (void **)&context->routingMsg
-    );
-    assert(context->routingMsgBuffer);
+    /* Probe for the SiLabs clock generator */
+    twiHandle = context->ethClkTwiHandle;
+    twiResult = twi_write(twiHandle, 0x70, NULL, 0);
+    if (twiResult == TWI_SIMPLE_SUCCESS) {
+        version = SAM_VERSION_1;
+    } else {
+        version = SAM_VERSION_2;
+    }
 
-    /* Initialize the message and routing table */
-    memset(context->routingMsg, 0 , msgSize);
-    context->routingMsg->type = IPC_TYPE_AUDIO_ROUTING;
-    context->routingMsg->routes.numRoutes = MAX_AUDIO_ROUTES;
+    return(version);
+}
+
+/**********************************************************************
+ * System Reset
+ **********************************************************************/
+void system_reset(APP_CONTEXT *context)
+{
+    /*
+     * The ISSI flash must be put back to 3 byte address mode to boot.
+     * The Micron flash never leaves 3 byte mode.
+     */
+    is25lp_close(context->flashHandle);
+    taskENTER_CRITICAL();
+    *pREG_RCU0_CTL = BITM_RCU_CTL_SYSRST | BITM_RCU_CTL_RSTOUTASRT;
+    while(1);
 }

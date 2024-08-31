@@ -1,4 +1,4 @@
-nafae-sam-audio-starter networking-2.0.0
+nafae-sam-audio-starter 3.0.0
 Copyright 2024 Analog Devices, Inc.
 
 The main license for this software is identified in the LICENSE file.
@@ -7,7 +7,9 @@ This product includes third party IP identified below:
 
 Components:
 
-antirez/kilo 20200705-snapshot-69c3ce60 : BSD 2-clause "Simplified" License
+antirez/kilo 0.0.1 : BSD 2-clause "Simplified" License
+BAN-AI-Communications / xmodem 966d8fe : BSD 3-clause "New" or "Revised" License
+chansen / c-timestamp b205c40 : BSD 2-clause "Simplified" License
 CLD USB Audio 2.0 Library v1.10 : ADI-CLD License
 elua's elua v0.9 : MIT License
 FatFs Module R0.14b : FatFs License
@@ -15,8 +17,9 @@ FreeBSD release/12.4.0 : BSD 2-clause "Simplified" License
 FreeRTOS Real Time Kernel V10.4.6 : MIT License
 libtelnet 0.23 : Public Domain
 linenoise 1.0 : BSD 2-clause "Simplified" License
-lwIP STABLE-2_1_2_RELEASE : BSD 3-clause "New" or "Revised" License
+lwIP 2.1.2 : BSD 3-clause "New" or "Revised" License
 menie.org/georges/crc16 1.0 : BSD 3-clause "New" or "Revised" License
+mpaland/printf v3.1.4 : MIT License
 pellepl/spiffs 0.3.7 : MIT License
 PortAudio 190600.20161030 : MIT License
 rhempel/umm_malloc v1.0.1 : MIT License
@@ -25,7 +28,7 @@ Yxml - A small, fast and correct* XML parser master-20151027 : MIT License
 Licenses:
 
 --------------------------------------------------------------------------------
-antirez/kilo 20200705-snapshot-69c3ce60
+antirez/kilo 0.0.1
 License: BSD 2-clause "Simplified" License
 Origin: https://github.com/antirez/kilo
 
@@ -63,8 +66,89 @@ DAMAGE.
 
 
 --------------------------------------------------------------------------------
+BAN-AI-Communications / xmodem 966d8fe
+License: BSD 3-clause "New" or "Revised" License
+Origin: https://github.com/BAN-AI-Communications/xmodem
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 3-clause "New" or "Revised" License
+SPDX-License-Identifier: BSD-3-Clause
+Copyright 2001-2019 Georges Menie (www.menie.org)
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  * Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+  * Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+  * Neither the name of the <ORGANIZATION> nor the names of its contributors may
+    be used to endorse or promote products derived from this software without
+    specific prior written permission.
+
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+--------------------------------------------------------------------------------
+chansen / c-timestamp b205c40
+License: BSD 2-clause "Simplified" License
+Origin: https://github.com/chansen/c-timestamp.git
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: BSD 2-clause "Simplified" License
+SPDX-License-Identifier: BSD-2-Clause
+Copyright (c) 2014 Christian Hansen <chansen@cpan.org> 
+<https://github.com/chansen/c-timestamp>
+
+BSD Two Clause License
+======================
+
+Redistribution and use in source and binary forms, with or without modification,
+are permitted provided that the following conditions are met:
+
+  1. Redistributions of source code must retain the above copyright notice, this
+    list of conditions and the following disclaimer.
+
+  2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+DAMAGE.
+
+
+--------------------------------------------------------------------------------
 CLD USB Audio 2.0 Library v1.10
 License: ADI-CLD License
+Origin: http://cld-llc.com/lib/
 
 
 
@@ -145,7 +229,7 @@ Copyright (C) 2013, ChaN, all right reserved.
 --------------------------------------------------------------------------------
 FreeBSD release/12.4.0
 License: BSD 2-clause "Simplified" License
-Origin: https://github.com/freebsd/freebsd-src
+Origin: https://github.com/freebsd/freebsd
 
 The source code for this component has been modified by Analog Devices.
 
@@ -224,17 +308,7 @@ The source code for this component has been modified by Analog Devices.
 
 
 License: Public Domain
-libtelnet is released to the public domain:
-
-The author or authors of this code dedicate any and all copyright
-interest in this code to the public domain. We make this dedication
-for the benefit of the public at large and to the detriment of our
-heirs and successors. We intend this dedication to be an overt act of
-relinquishment in perpetuity of all present and future rights to this
-code under copyright law.
-
--- Sean Middleditch <sean@sourcemud.org>
--- Jack Kelly <endgame.dos@gmail.com>
+Public domain code is not subject to any license.
 
 
 
@@ -277,7 +351,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
 
 
 --------------------------------------------------------------------------------
-lwIP STABLE-2_1_2_RELEASE
+lwIP 2.1.2
 License: BSD 3-clause "New" or "Revised" License
 Origin: https://github.com/lwip-tcpip/lwip
 
@@ -287,33 +361,31 @@ The source code for this component has been modified by Analog Devices.
 
 License: BSD 3-clause "New" or "Revised" License
 SPDX-License-Identifier: BSD-3-Clause
-/*
- * Copyright (c) 2001, 2002 Swedish Institute of Computer Science.
- * All rights reserved. 
- * 
- *
+Copyright (c) 2001, 2002 Swedish Institute of Computer Science.
 
-Redistribution and use in source and binary forms, with or without modification, 
- * are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
- * 3. The name of the author may not be used to endorse or promote products
- *    derived from this software without specific prior written permission. 
- *
- * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED 
- * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
- * MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT 
- * SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT 
- * OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS 
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN 
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING 
- * IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY 
- * OF SUCH DAMAGE
+License: BSD-3-Clause
+
+Redistribution and use in source and binary forms, with or without modification,
+ are permitted provided that the following conditions are met:
+ .
+ 1. Redistributions of source code must retain the above copyright notice,
+    this list of conditions and the following disclaimer.
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+    this list of conditions and the following disclaimer in the documentation
+    and/or other materials provided with the distribution.
+ 3. The name of the author may not be used to endorse or promote products
+    derived from this software without specific prior written permission.
+ .
+ THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT
+ SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+ OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+ OF SUCH DAMAGE
 
 
 --------------------------------------------------------------------------------
@@ -355,6 +427,40 @@ OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+--------------------------------------------------------------------------------
+mpaland/printf v3.1.4
+License: MIT License
+Origin: https://github.com/mpaland/printf
+
+The source code for this component has been modified by Analog Devices.
+
+
+
+License: MIT License
+SPDX-License-Identifier: MIT
+The MIT License (MIT)
+
+Copyright (c) 2014 Marco Paland
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE
 
 
 --------------------------------------------------------------------------------

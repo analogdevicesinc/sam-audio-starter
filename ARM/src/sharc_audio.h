@@ -16,7 +16,12 @@
 #include "context.h"
 #include "sae.h"
 
-void sharcAudio(APP_CONTEXT *context, unsigned mask, SAE_MSG_BUFFER *msg,
-    bool clockSource, bool in);
+void sendMsg(SAE_CONTEXT *saeContext, SAE_MSG_BUFFER *msg, int core);
+
+void *xferSharc0InAudio(APP_CONTEXT *context, CLOCK_DOMAIN cd);
+void *xferSharc0OutAudio(APP_CONTEXT *context, CLOCK_DOMAIN cd);
+
+void *xferSharc1InAudio(APP_CONTEXT *context, CLOCK_DOMAIN cd);
+void *xferSharc1OutAudio(APP_CONTEXT *context, CLOCK_DOMAIN cd);
 
 #endif

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -14,6 +14,10 @@
 #include <string.h>
 #include <ctype.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "context.h"
 #include "syslog.h"
 #include "twi_simple.h"
 #include "shell.h"
@@ -21,17 +25,18 @@
 #include "term.h"
 #include "xmodem.h"
 #include "util.h"
-
-#include "FreeRTOS.h"
-#include "task.h"
-
-#include "context.h"
+#include "clock_domain.h"
 
 #ifdef printf
 #undef printf
 #endif
 
+#ifdef vprintf
+#undef vprintf
+#endif
+
 #define printf(...) shell_printf(ctx, __VA_ARGS__)
+#define vprintf(x,y) shell_vprintf(ctx, x, y)
 
 /***********************************************************************
  * Main application context
@@ -41,9 +46,54 @@ static APP_CONTEXT *context = &mainAppContext;
 /***********************************************************************
  * Misc helper functions
  **********************************************************************/
+static void dumpBytes(SHELL_CONTEXT *ctx, unsigned char *rdata, unsigned addr, unsigned rlen)
+{
+    unsigned i;
+    for (i = 0; i < rlen; i++) {
+        if ((i % 16) == 0) {
+            if (i) {
+                printf("\n");
+            }
+            printf("%08x: ", addr + i);
+        }
+        printf("%02x ", rdata[i]);
+    }
+    printf("\n");
+}
+
+static unsigned str2bytes(char *str, unsigned char **bytes)
+{
+    char *delim = " ,";
+    char *saveptr = NULL;
+    char *token = NULL;
+    unsigned wlen = 0;
+    unsigned allocLen = 0;
+    unsigned char *wdata = NULL;
+
+    wlen = 0; allocLen = 0;
+    token = strtok_r(str, delim, &saveptr);
+    while (token) {
+        if ((wlen + 1) > allocLen) {
+            allocLen += 256;
+            wdata = SHELL_REALLOC(wdata, allocLen * sizeof(*wdata));
+        }
+        wdata[wlen] = strtoul(token, NULL, 0);
+        wlen++;
+        token = strtok_r(NULL, delim, &saveptr);
+    }
+
+    if (bytes) {
+        *bytes = wdata;
+    }
+
+    return(wlen);
+}
+
 enum {
     INVALID_FS = -1,
-    SPIFFS_FS = 0
+    SPIFFS_FS = 0,
+    SD_FS,
+    EMMC_FS
 };
 
 static int fsVolOK(SHELL_CONTEXT *ctx, APP_CONTEXT *context, char *fs)
@@ -52,10 +102,30 @@ static int fsVolOK(SHELL_CONTEXT *ctx, APP_CONTEXT *context, char *fs)
         if (context->spiffsHandle) {
             return SPIFFS_FS;
         } else {
-            printf("SPIFFS has not been configured for this project!\n");
+            printf("SPIFFS has not been initialized!\n");
             return INVALID_FS;
         }
     }
+#if defined(SDCARD_VOL_NAME) && !defined(SDCARD_USE_EMMC)
+    if (strcmp(fs, SDCARD_VOL_NAME) == 0) {
+        if (context->sdcardHandle) {
+            return SD_FS;
+        } else {
+            printf("SDCARD has not been initialized!\n");
+            return INVALID_FS;
+        }
+    }
+#endif
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+    if (strcmp(fs, EMMC_VOL_NAME) == 0) {
+        if (context->sdcardHandle) {
+            return EMMC_FS;
+        } else {
+            printf("EMMC has not been initialized!\n");
+            return INVALID_FS;
+        }
+    }
+#endif
     printf("Invalid drive name specified.\n");
     return INVALID_FS;
 }
@@ -67,13 +137,13 @@ typedef struct XMODEM_STATE {
     SHELL_CONTEXT *ctx;
 } XMODEM_STATE;
 
-static void shell_xmodem_putchar(unsigned char c, void *usr)
+static void shell_xmodem_putchar(int c, void *usr)
 {
     XMODEM_STATE *x = (XMODEM_STATE *)usr;
     SHELL_CONTEXT *ctx = x->ctx;
     TERM_STATE *t = &ctx->t;
 
-    t->term_out(c, ctx->usr);
+    term_putch(t, c);
 }
 
 static int shell_xmodem_getchar(int timeout, void *usr)
@@ -83,10 +153,9 @@ static int shell_xmodem_getchar(int timeout, void *usr)
     TERM_STATE *t = &ctx->t;
     int c;
 
-    c = t->term_in(timeout, ctx->usr);
+    c = term_getch(t, timeout);
 
     return(c);
-
 }
 
 typedef struct FLASH_WRITE_STATE {
@@ -97,7 +166,7 @@ typedef struct FLASH_WRITE_STATE {
     unsigned eraseBlockSize;
 } FLASH_WRITE_STATE;
 
-int flashDataWrite(unsigned char *data, unsigned size, bool final, void *usr)
+void flashDataWrite(void *usr, void *data, int size)
 {
    FLASH_WRITE_STATE *state = (FLASH_WRITE_STATE *)usr;
    int err;
@@ -106,37 +175,66 @@ int flashDataWrite(unsigned char *data, unsigned size, bool final, void *usr)
       if ((state->addr % state->eraseBlockSize) == 0) {
          err = flash_erase(state->flash, state->addr, state->eraseBlockSize);
          if (err != FLASH_OK) {
-            return(XMODEM_ERROR_GENERIC);
+            return;
          }
       }
       if ((state->addr + size) <= state->maxAddr) {
          err = flash_program(state->flash, state->addr, (const unsigned char *)data, size);
          if (err != FLASH_OK) {
-            return(XMODEM_ERROR_GENERIC);
+            return;
          }
          state->addr += size;
       }
    }
-   return(XMODEM_ERROR_NONE);
 }
 
-typedef struct FILE_WRITE_STATE {
+typedef struct FILE_XFER_STATE {
     XMODEM_STATE xmodem;
     FILE *f;
-} FILE_WRITE_STATE;
+    void *data;
+    int size;
+} FILE_XFER_STATE;
 
-int fileDataWrite(unsigned char *data, unsigned size, bool final, void *usr)
+void fileDataWrite(void *usr, void *data, int size)
 {
-    FILE_WRITE_STATE *state = (FILE_WRITE_STATE *)usr;
+    FILE_XFER_STATE *state = (FILE_XFER_STATE *)usr;
     size_t wsize;
 
-    if (size > 0) {
-        wsize = fwrite(data, sizeof(*data), size, state->f);
-        if (wsize != size) {
-            return(XMODEM_ERROR_CALLBACK);
+    /*
+     * Need to double-buffer the data in order to strip off the
+     * trailing packet bytes at the end of an xmodem transfer.
+     */
+    if (state->data == NULL) {
+        state->data = SHELL_MALLOC(1024);
+        memcpy(state->data, data, size);
+        state->size = size;
+    } else {
+        if (data) {
+            wsize = fwrite(state->data, 1, state->size, state->f);
+            memcpy(state->data, data, size);
+            state->size = size;
+        } else {
+            uint8_t *buf = (uint8_t *)state->data;
+            while (state->size && buf[state->size-1] == '\x1A') {
+               state->size--;
+            }
+            wsize = fwrite(state->data, 1, state->size, state->f);
+            if (state->data) {
+                SHELL_FREE(state->data);
+                state->data = NULL;
+            }
         }
     }
-    return(XMODEM_ERROR_NONE);
+}
+
+void fileDataRead(void *usr, void *data, int size)
+{
+    FILE_XFER_STATE *state = (FILE_XFER_STATE *)usr;
+    size_t rsize;
+
+    if (size > 0) {
+        rsize = fread(data, 1, size, state->f);
+    }
 }
 
 int confirmDanger(SHELL_CONTEXT *ctx, char *warnStr)
@@ -144,7 +242,7 @@ int confirmDanger(SHELL_CONTEXT *ctx, char *warnStr)
     char c;
 
     printf( "%s\n", warnStr );
-    printf( "Are you sure you want to continue? [y/n]\n" );
+    printf( "Are you sure you want to continue? [y/n]" );
 
     c = term_getch( &ctx->t, TERM_INPUT_WAIT );
     printf( "%c\n", isprint( c ) ? c : ' ' );
@@ -157,6 +255,100 @@ int confirmDanger(SHELL_CONTEXT *ctx, char *warnStr)
 }
 
 /***********************************************************************
+ * CMD: dump
+ **********************************************************************/
+const char shell_help_dump[] = "[addr] <len>\n"
+    "  addr - Starting address to dump\n"
+    "  len - Number of bytes to dump (default 1)\n";
+const char shell_help_summary_dump[] = "Hex dump of flash contents";
+
+#include "flash.h"
+
+void shell_dump(SHELL_CONTEXT *ctx, int argc, char **argv)
+{
+    uintptr_t addr = 0;
+    unsigned len = 1;
+    uint8_t *buf;
+    int ok;
+
+    if (argc < 2) {
+        printf("Invalid arguments\n");
+        return;
+    }
+
+    addr = strtoul(argv[1], NULL, 0);
+    if (argc > 2) {
+        len = strtoul(argv[2], NULL, 0);
+    }
+
+    buf = SHELL_MALLOC(len);
+    if (buf) {
+        ok = flash_read(context->flashHandle, addr, buf, len);
+        if (ok == FLASH_OK) {
+            dumpBytes(ctx, buf, addr, len);
+        }
+        SHELL_FREE(buf);
+    }
+}
+
+/***********************************************************************
+ * CMD: fdump
+ **********************************************************************/
+const char shell_help_fdump[] =
+  "[file] <start> <size>\n"
+  "  file - File to dump\n"
+  "  start - Start offset in bytes (default: 0)\n"
+  "  size - Size in bytes (default: full file)\n";
+const char shell_help_summary_fdump[] = "Dumps the contents of a file in hex";
+
+#define DUMP_SIZE 512
+
+void shell_fdump(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    FILE *f;
+    size_t start = 0;
+    size_t size = SIZE_MAX;
+    uint8_t *buf = NULL;
+    size_t rlen;
+    int c;
+
+    if( argc < 2 ) {
+        printf("No file given\n");
+        return;
+    }
+
+    if (argc > 2) {
+        start = (size_t)strtoul(argv[2], NULL, 0);
+    }
+
+    if (argc > 3) {
+        size = (size_t)strtoul(argv[3], NULL, 0);
+    }
+
+    f = fopen(argv[1], "r" );
+    if (f) {
+        buf = SHELL_MALLOC(DUMP_SIZE);
+        fseek(f, start, SEEK_SET);
+        do {
+            rlen = (size < DUMP_SIZE) ? size : DUMP_SIZE;
+            rlen = fread(buf, sizeof(*buf), rlen, f);
+            if (rlen) {
+                dumpBytes(ctx, buf, start, rlen);
+                size -= rlen;
+                start += rlen;
+                c = term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
+            }
+        } while (size && rlen && (c < 0));
+        if (buf) {
+            SHELL_FREE(buf);
+        }
+        fclose(f);
+    } else {
+        printf("Unable to open '%s'\n", argv[1]);
+    }
+}
+
+/***********************************************************************
  * CMD: recv
  **********************************************************************/
 const char shell_help_recv[] = "<file>\n"
@@ -165,7 +357,7 @@ const char shell_help_summary_recv[] = "Receive a file via XMODEM";
 
 void shell_recv( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    FILE_WRITE_STATE fileState;
+    FILE_XFER_STATE fileState = { 0 };
     long size;
 
     if( argc != 2 ) {
@@ -180,9 +372,11 @@ void shell_recv( SHELL_CONTEXT *ctx, int argc, char **argv )
         printf( "unable to open file %s\n", argv[ 1 ] );
         return;
     }
-    printf( "Waiting for file ... " );
-    size = xmodem_receive(fileDataWrite, &fileState,
-        shell_xmodem_putchar, shell_xmodem_getchar);
+    printf( "Prepare your terminal for XMODEM send ... " );
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    size = XmodemReceiveCrc(fileDataWrite, &fileState, INT_MAX,
+        shell_xmodem_getchar, shell_xmodem_putchar);
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
     if (size < 0) {
         printf( "XMODEM Error: %ld\n", size);
     } else {
@@ -192,30 +386,105 @@ void shell_recv( SHELL_CONTEXT *ctx, int argc, char **argv )
 }
 
 /***********************************************************************
+ * CMD: send
+ **********************************************************************/
+const char shell_help_send[] = "<file1> [<file2> ...]\n";
+const char shell_help_summary_send[] = "Send files via YMODEM.";
+
+#include "uart_stdio.h"
+
+typedef struct YMODEM_STATE {
+    FILE_XFER_STATE state;
+    const char *fname;
+    size_t fsize;
+} YMODEM_STATE;
+
+static void ymodem_hdr(void *usr, void *xmodemBuffer, int xmodemSize)
+{
+    YMODEM_STATE *y = (YMODEM_STATE *)usr;
+    snprintf(xmodemBuffer, xmodemSize, "%s%c%u", y->fname, 0, (unsigned)y->fsize);
+}
+
+static void ymodem_end(void *xs, void *xmodemBuffer, int xmodemSize)
+{
+}
+
+void shell_send(SHELL_CONTEXT *ctx, int argc, char **argv)
+{
+    size_t size;
+    FILE *fp = NULL;
+    int ret = -1;
+    int i;
+
+    YMODEM_STATE y = {
+        .state.xmodem.ctx = ctx,
+    };
+
+    if (argc < 2) {
+        printf("Usage: %s <file1> [<file2> ...]\n", argv[0]);
+        return;
+    }
+
+    printf ("Prepare your terminal for YMODEM receive...\n");
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    for (i = 1; i < argc; i++) {
+        fp = fopen( argv[i], "rb");
+        if (fp) {
+            fseek(fp, 0, SEEK_END);
+            size = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            y.fname = argv[i]; y.fsize = size; y.state.f = fp;
+            ret = XmodemTransmit(ymodem_hdr, &y, 128, 0, 1,
+                shell_xmodem_getchar, shell_xmodem_putchar);
+            if (ret >= 0) {
+                ret = XmodemTransmit(fileDataRead, &y, y.fsize, 1, 0,
+                    shell_xmodem_getchar, shell_xmodem_putchar);
+            }
+            fclose(fp);
+            if (ret < 0) {
+                break;
+            }
+        }
+    }
+    if (ret >= 0) {
+        ret = XmodemTransmit(ymodem_end, &y, 128, 0, 1,
+            shell_xmodem_getchar, shell_xmodem_putchar);
+    }
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
+    if (ret < 0) {
+        printf( "YMODEM Error: %ld\n", ret);
+    }
+
+}
+
+/**********************************************************************
  * CMD: i2c
  **********************************************************************/
-const char shell_help_i2c[] = "<i2c_port> <i2c_addr> <reg_addr> <length>\n"
+const char shell_help_i2c[] = "<i2c_port> <i2c_addr> <mem_addr> <wdata> <length> [addr_len]\n"
   "  i2c_port - I2C port to probe\n"
   "  i2c_addr - I2C device address\n"
-  "  reg_addr - Starting address register dump\n"
-  "  length - Number of bytes to dump\n";
+  "  mem_addr - Starting memory address\n"
+  "  wdata - Comma separated string of bytes to write (i.e. \"1,0x02,3\")\n"
+  "          Empty quotes for read only.\n"
+  "  length - Number of bytes to read.  Zero for write only.\n"
+  "  addr_len - Number of address bytes (default 1)\n";
 const char shell_help_summary_i2c[] = "Executes an I2C write/read transaction";
 
 void shell_i2c(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
     sTWI *twiHandle;
     TWI_SIMPLE_PORT twiPort;
-    bool useLocalTwiHandle;
     uint16_t  reg_addr;
     uint8_t  i2c_addr;
     uint16_t  length;
     uint16_t  addrLength;
-    uint8_t twiWrBuffer[2];
-    uint8_t *twiRdBuffer;
+    uint8_t *twiWrBuffer = NULL;
+    uint8_t *wdata = NULL;
+    uint8_t twiWrLen;
+    uint8_t *twiRdBuffer = NULL;
     TWI_SIMPLE_RESULT result;
-    int i;
 
-    if (argc != 5) {
+    if (argc < 5) {
         printf( "Invalid arguments. Type help [<command>] for usage.\n" );
         return;
     }
@@ -223,76 +492,92 @@ void shell_i2c(SHELL_CONTEXT *ctx, int argc, char **argv)
     twiPort = (TWI_SIMPLE_PORT)strtol(argv[1], NULL, 0);
     twiHandle = NULL;
 
-    if ((twiPort < TWI0) || (twiPort >= TWI_END)) {
+    if (twiPort >= TWI_END) {
         printf("Invalid I2C port!\n");
         return;
     }
 
     i2c_addr = strtol(argv[2], NULL, 0);
     reg_addr = strtol(argv[3], NULL, 0);
-    length = strtol(argv[4], NULL, 0);
+    twiWrLen = str2bytes(argv[4], &wdata);
 
-    if (length <= 0) {
-        length = 1;
+    length = strtol(argv[5], NULL, 0);
+    if (length < 0) {
+        printf("Invalid read length!\n");
+        return;
+    }
+
+    addrLength = (reg_addr > 255) ? 2 : 1;
+    if (argc > 6) {
+        addrLength = strtol(argv[6], NULL, 0);
+        if ((addrLength < 1) || (addrLength > 2)) {
+            printf("Invalid address length!\n");
+            return;
+        }
     }
 
     /* Allocate a buffer to read into */
-    twiRdBuffer = SHELL_MALLOC(length);
+    if (length) {
+        twiRdBuffer = SHELL_MALLOC(length);
+    }
 
-    printf ( "I2C Device (0x%02x): addr 0x%04x, bytes %d (0x%02x)",
-        i2c_addr, reg_addr, length, length);
+    /* Allocate a write buffer */
+    twiWrBuffer = SHELL_MALLOC(addrLength + twiWrLen);
 
     /* See if requested TWI port is already open globally */
     if ((twiPort == TWI0) && context->twi0Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi0Handle;
         result = TWI_SIMPLE_SUCCESS;
+    } else if ((twiPort == TWI1) && context->twi1Handle) {
+        twiHandle = context->twi1Handle;
+        result = TWI_SIMPLE_SUCCESS;
     } else if ((twiPort == TWI2) && context->twi2Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi2Handle;
         result = TWI_SIMPLE_SUCCESS;
     }
-    if (twiHandle == NULL) {
-        useLocalTwiHandle = true;
-        result = twi_open(twiPort, &twiHandle);
-    }
 
-    /* Do write/read of peripheral at the specified address */
-    if (result == TWI_SIMPLE_SUCCESS) {
-        if (reg_addr > 255) {
-            twiWrBuffer[0] = (reg_addr >> 8) & 0xFF;
-            twiWrBuffer[1] = (reg_addr >> 0) & 0xFF;
-            addrLength = 2;
-        } else {
-            twiWrBuffer[0] = reg_addr;
-            addrLength = 1;
+    if (twiHandle != NULL) {
+
+        /* Print header if reading */
+        if (length > 0) {
+            printf ( "I2C Device (0x%02x): addr 0x%04x, bytes %d (0x%02x)\n",
+                i2c_addr, reg_addr, length, length);
         }
-        result = twi_writeRead(twiHandle, i2c_addr, twiWrBuffer, addrLength, twiRdBuffer, length);
+
+        /* Do write/read of peripheral at the specified address */
         if (result == TWI_SIMPLE_SUCCESS) {
-            for (i = 0; i < length; i++) {
-                if ((i % 16) == 0) {
-                    printf("\n");
-                    printf("%02x: ", i + reg_addr);
-                }
-                printf("%02x ", twiRdBuffer[i]);
+            if (addrLength == 2) {
+                twiWrBuffer[0] = (reg_addr >> 8) & 0xFF;
+                twiWrBuffer[1] = (reg_addr >> 0) & 0xFF;
+            } else {
+                twiWrBuffer[0] = reg_addr;
             }
-            printf("\n");
-        } else {
-            printf("\n");
-            printf("twi twi_writeRead() error %d\n", result);
+            memcpy(twiWrBuffer + addrLength, wdata, twiWrLen);
+            twiWrLen += addrLength;
+            result = twi_writeRead(twiHandle, i2c_addr, twiWrBuffer, twiWrLen, twiRdBuffer, length);
+            if (result == TWI_SIMPLE_SUCCESS) {
+                if (length > 0) {
+                    dumpBytes(ctx, twiRdBuffer, reg_addr, length);
+                }
+            } else {
+                printf("twi twi_writeRead() error %d\n", result);
+            }
         }
     } else {
-        printf("\n");
-        printf ("twi open error %d\n", result);
+        printf("I2C port %d is not configured in this project!\n", twiPort);
+    }
+
+    /* Free the write buffers */
+    if (wdata) {
+        SHELL_FREE(wdata);
+    }
+    if (twiWrBuffer) {
+        SHELL_FREE(twiWrBuffer);
     }
 
     /* Free the read buffer */
     if (twiRdBuffer) {
         SHELL_FREE(twiRdBuffer);
-    }
-
-    if (useLocalTwiHandle && twiHandle) {
-        twi_close(&twiHandle);
     }
 }
 
@@ -305,7 +590,6 @@ const char shell_help_summary_i2c_probe[] = "Probe an I2C port for active device
 
 void shell_i2c_probe(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
-    bool useLocalTwiHandle;
     sTWI *twiHandle;
     TWI_SIMPLE_RESULT result;
     TWI_SIMPLE_PORT twiPort;
@@ -319,41 +603,35 @@ void shell_i2c_probe(SHELL_CONTEXT *ctx, int argc, char **argv)
     twiPort = (TWI_SIMPLE_PORT)strtol(argv[1], NULL, 0);
     twiHandle = NULL;
 
-    if ((twiPort < TWI0) || (twiPort >= TWI_END)) {
+    if (twiPort >= TWI_END) {
         printf("Invalid I2C port!\n");
         return;
     }
 
-    printf ( "Probing I2C port %d:\n", twiPort);
-
     /* See if requested TWI port is already open globally */
     if ((twiPort == TWI0) && context->twi0Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi0Handle;
         result = TWI_SIMPLE_SUCCESS;
+    } else if ((twiPort == TWI1) && context->twi1Handle) {
+        twiHandle = context->twi1Handle;
+        result = TWI_SIMPLE_SUCCESS;
     } else if ((twiPort == TWI2) && context->twi2Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi2Handle;
         result = TWI_SIMPLE_SUCCESS;
     }
-    if (twiHandle == NULL) {
-        useLocalTwiHandle = true;
-        result = twi_open(twiPort, &twiHandle);
-    }
 
-    if (result == TWI_SIMPLE_SUCCESS) {
-        for (i = 0; i < 128; i++) {
-            result = twi_write(twiHandle, i, NULL, 0);
-            if (result == TWI_SIMPLE_SUCCESS) {
-                printf(" Found device 0x%02x\n", i);
+    if (twiHandle != NULL) {
+        if (result == TWI_SIMPLE_SUCCESS) {
+            printf ( "Probing I2C port %d:\n", twiPort);
+            for (i = 0; i < 128; i++) {
+                result = twi_write(twiHandle, i, NULL, 0);
+                if (result == TWI_SIMPLE_SUCCESS) {
+                    printf(" Found device 0x%02x\n", i);
+                }
             }
         }
     } else {
-        printf ("twi open error %d\n", result);
-    }
-
-    if (useLocalTwiHandle && twiHandle) {
-        twi_close(&twiHandle);
+        printf("I2C port %d is not configured in this project!\n", twiPort);
     }
 }
 
@@ -363,20 +641,41 @@ void shell_i2c_probe(SHELL_CONTEXT *ctx, int argc, char **argv)
 const char shell_help_syslog[] = "\n";
 const char shell_help_summary_syslog[] = "Show the live system log";
 
+#include "syslog.h"
+
+#define MAX_TS_LINE  32
+#define MAX_LOG_LINE 256
+
 void shell_syslog(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
+    char *line;
+    char *lbuf;
+    char *ts;
     int c;
+
+    ts = SHELL_MALLOC(MAX_TS_LINE);
+    lbuf = SHELL_MALLOC(MAX_LOG_LINE);
 
     c = 0;
     do {
+        line = syslog_next(ts, MAX_TS_LINE, lbuf, MAX_LOG_LINE);
+        if (line) {
+            printf("%s %s\n", ts, line);
+        }
+        c = term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
 #ifdef FREE_RTOS
-        if (c < 0) {
+        if ((line == NULL) && (c < 0)) {
             vTaskDelay(pdMS_TO_TICKS(50));
         }
 #endif
-        syslog_dump(SYSLOG_MAX_LINES);
-        c = term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
     } while (c < 0);
+
+    if (ts) {
+        SHELL_FREE(ts);
+    }
+    if (lbuf) {
+        SHELL_FREE(lbuf);
+    }
 }
 
 /***********************************************************************
@@ -513,26 +812,41 @@ void shell_ls(SHELL_CONTEXT *ctx, int argc, char **argv)
     if (argc == 1) {
         result = fs_devman_get_default((const char **)&device);
         if (result != FS_DEVMAN_OK) {
-            device = SPIFFS_VOL_NAME;
+            return;
         }
     } else {
         device = argv[1];
     }
 
-    shell_ls_helper( ctx, device, 0, &phasdirs );
+    shell_ls_helper(ctx, device, 0, &phasdirs );
 }
 
 /***********************************************************************
  * CMD: format
  **********************************************************************/
-const char shell_help_format[] = "["SPIFFS_VOL_NAME"]\n";
-const char shell_help_summary_format[] = "Formats the internal flash filesystem";
+const char shell_help_format[] = "["
+    SPIFFS_VOL_NAME
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+    " | " EMMC_VOL_NAME
+#endif
+    "]\n";
+const char shell_help_summary_format[] = "Formats an internal flash filesystem";
+
+#include "fs_devman.h"
 
 #include "spiffs_fs.h"
+#include "fs_dev_spiffs.h"
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+#include "ff.h"
+#endif
 
 void shell_format(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
+    FS_DEVMAN_RESULT fsdResult;
+    FS_DEVMAN_DEVICE *device;
+    const char *ddname;
     int fs = INVALID_FS;
+    bool dd = false;
 
     fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
     if (fs == INVALID_FS) {
@@ -540,13 +854,40 @@ void shell_format(SHELL_CONTEXT *ctx, int argc, char **argv)
     }
 
     printf("Be patient, this may take a while.\n");
-    printf("Formatting %s...\n", argv[1]);
+    printf("Formatting...\n");
 
     if (fs == SPIFFS_FS) {
+        if (fs_devman_is_device_valid(SPIFFS_VOL_NAME)) {
+            fsdResult = fs_devman_get_default(&ddname);
+            if (fsdResult == FS_DEVMAN_OK) {
+                dd = (strcmp(ddname, SPIFFS_VOL_NAME) == 0);
+            }
+            fs_devman_unregister(SPIFFS_VOL_NAME);
+        }
         spiffs_format(context->spiffsHandle);
+        device = fs_dev_spiffs_device();
+        fsdResult = fs_devman_register(SPIFFS_VOL_NAME, device, context->spiffsHandle);
+        if (dd) {
+            fsdResult = fs_devman_set_default(SPIFFS_VOL_NAME);
+        }
+    }
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+    if (fs == EMMC_FS) {
+        FRESULT res;
+        MKFS_PARM opt = {
+            .fmt = FM_FAT32
+        };
+        res = f_mkfs(EMMC_VOL_NAME, &opt, NULL, 512*16);
+        if (res == FR_OK) {
+            context->sdRemount = true;
+        }
+    }
+#endif
+    if (fs == SD_FS) {
+        printf("Not supported.\n");
     }
 
-    printf("Done. Please reset the board to mount the filesystem.\n");
+    printf("Done.\n");
 }
 
 /***********************************************************************
@@ -555,18 +896,17 @@ void shell_format(SHELL_CONTEXT *ctx, int argc, char **argv)
 #include "init.h"
 #include "a2b_xml.h"
 #include "adi_a2b_cmdlist.h"
+#include "a2b_irq.h"
 
-const char shell_help_discover[] = "<a2b.xml> <verbose> <i2c_port> <i2c_addr> <reset>\n"
+const char shell_help_discover[] = "<a2b.xml> <verbose> <i2c_port> <i2c_addr>\n"
   "  a2b.xml  - A SigmaStudio A2B XML config export file\n"
   "             default 'a2b.xml'\n"
   "  verbose  - Print out results to 0:none, 1:stdout, 2:syslog\n"
   "             default: 1\n"
   "  i2c_port - Set the AD242x transceiver I2C port.\n"
   "             default: 0 (TWI0)\n"
-  "  i2c_addr - Set the AD2425 transceiver I2C address\n"
-  "             default: 0x68\n"
-  "  reset    - Reset the A2B transceiver(s) 'y':yes, 'n':no\n"
-  "             default: 'y'\n";
+  "  i2c_addr - Set the AD242x transceiver I2C address\n"
+  "             default: 0x68\n";
 const char shell_help_summary_discover[] = "Discovers an A2B network";
 
 static ADI_A2B_CMDLIST_RESULT shell_discover_twi_read(
@@ -577,7 +917,7 @@ static ADI_A2B_CMDLIST_RESULT shell_discover_twi_read(
     twiResult = twi_read(twiHandle, address, in, inLen);
     return (twiResult == TWI_SIMPLE_SUCCESS ?
         ADI_A2B_CMDLIST_SUCCESS : ADI_A2B_CMDLIST_A2B_I2C_READ_ERROR);
-}
+    }
 
 static ADI_A2B_CMDLIST_RESULT shell_discover_twi_write(
     void *twiHandle, uint8_t address,
@@ -629,7 +969,62 @@ static void shell_discover_free_buffer(void *buffer, void *usr)
     SHELL_FREE(buffer);
 }
 
-typedef int (*PF)(const char *restrict format, ...);
+static void shell_discover_log (
+    bool newLine, void *usr, const char *fmt, va_list va)
+{
+    static char *logline = NULL;
+    char *str = NULL;
+    char *l;
+    va_list _va;
+    int len;
+
+    /* Flush if newline or done */
+    if (newLine || (fmt == NULL)) {
+        if (logline) {
+            syslog_print(logline);
+            SHELL_FREE(logline);
+            logline = NULL;
+        }
+    }
+
+    /* Make new string */
+    if (fmt) {
+        _va = va;
+        len = vsnprintf(NULL, 0, fmt, _va);
+        _va = va;
+        str = SHELL_MALLOC(len + 1);
+        vsnprintf(str, len + 1, fmt, _va);
+    }
+
+    /* Concat */
+    if (str) {
+        len = logline ? strlen(logline) : 0;
+        len += strlen(str) + 1;
+        l = SHELL_REALLOC(logline, len);
+        if (logline == NULL) {
+            *l = '\0';
+        }
+        logline = l;
+        strcat(logline, str);
+    }
+
+    /* Free */
+    if (str) {
+        SHELL_FREE(str);
+    }
+}
+
+
+typedef int (*PF)(SHELL_CONTEXT *ctx, const char *restrict format, ...);
+
+int shell_syslog_vprintf(SHELL_CONTEXT *ctx, const char *restrict format, ...)
+{
+    va_list va;
+    va_start(va, format);
+    syslog_vprintf((char *)format, va);
+    va_end(va);
+    return(0);
+}
 
 void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
@@ -638,12 +1033,10 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
     void *a2bInitSequence;
     uint32_t a2bIinitLength;
     int verbose;
-    bool useLocalTwiHandle;
     sTWI *twiHandle;
     TWI_SIMPLE_RESULT result;
     TWI_SIMPLE_PORT twiPort;
     uint8_t ad2425I2CAddr;
-    bool reset;
     A2B_CMD_TYPE a2bCmdType;
     ADI_A2B_CMDLIST *list;
     ADI_A2B_CMDLIST_EXECUTE_INFO execInfo;
@@ -660,7 +1053,8 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
         .getTime = shell_discover_get_time,
         .getBuffer = shell_discover_get_buffer,
         .freeBuffer = shell_discover_free_buffer,
-        .usr = context
+        .log = shell_discover_log,
+        .usr = ctx
     };
 
     /* Determine file name */
@@ -677,39 +1071,43 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
         verbose = 1;
     }
     if (verbose == 1) {
-        pf = printf;
+        pf = shell_printf;
     } else if (verbose == 2) {
-        pf = (PF)syslog_printf;
+        pf = shell_syslog_vprintf;
     } else {
         pf = NULL;
     }
 
     /* Determine TWI port */
     if (argc >= 4) {
-        twiPort = strtol(argv[3], NULL, 0);
+        twiPort = (TWI_SIMPLE_PORT)strtol(argv[3], NULL, 0);
     } else {
-        twiPort = 0;
-        }
-    if ((twiPort < TWI0) || (twiPort >= TWI_END)) {
+        twiPort = TWI0;
+    }
+    if (twiPort >= TWI_END) {
         if (pf) {
-            pf("Invalid I2C port!\n");
+            pf(ctx, "Invalid I2C port!\n");
         }
         return;
     }
 
     /* See if requested TWI port is already open globally */
+    twiHandle = NULL;
     if ((twiPort == TWI0) && context->twi0Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi0Handle;
         result = TWI_SIMPLE_SUCCESS;
+    } else if ((twiPort == TWI1) && context->twi1Handle) {
+        twiHandle = context->twi1Handle;
+        result = TWI_SIMPLE_SUCCESS;
     } else if ((twiPort == TWI2) && context->twi2Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi2Handle;
         result = TWI_SIMPLE_SUCCESS;
     }
     if (twiHandle == NULL) {
-        useLocalTwiHandle = true;
-        result = twi_open(twiPort, &twiHandle);
+        if (pf) {
+            pf(ctx, "I2C port %d is not configured in this project!\n", twiPort);
+        }
+        return;
     }
 
     /* Save the TWI handle to use */
@@ -719,19 +1117,7 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
     if (argc >= 5) {
         ad2425I2CAddr = strtol(argv[4], NULL, 0);
     } else {
-        ad2425I2CAddr = AD2425W_SAM_I2C_ADDR;
-    }
-
-    /* Reset the transceiver */
-    if (argc >= 6) {
-        reset = toupper(argv[5][0]) == 'Y';
-    } else {
-        reset = true;
-    }
-
-    /* Reset the AD2425 and A2B network */
-    if (reset) {
-        ad2425_reset(context);
+        ad2425I2CAddr = context->cfg.a2bI2CAddr;
     }
 
     /* Load the A2B network init */
@@ -761,18 +1147,18 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
         );
         if (scanInfo.I2SGCFG_valid && (scanInfo.I2SGCFG != SYSTEM_I2SGCFG)) {
             if (pf) {
-                pf("WARNING: I2SGCFG mismatch (expected %02x, got %02x)\n",
+                pf(ctx, "WARNING: I2SGCFG mismatch (expected %02x, got %02x)\n",
                     SYSTEM_I2SGCFG, scanInfo.I2SGCFG);
-                pf("         Overriding...\n");
+                pf(ctx, "         Overriding...\n");
             }
             overrideInfo.I2SGCFG_override = true;
             overrideInfo.I2SGCFG = SYSTEM_I2SGCFG;
         }
         if (scanInfo.I2SCFG_valid && (scanInfo.I2SCFG != SYSTEM_I2SCFG)) {
             if (pf) {
-                pf("WARNING: I2SCFG mismatch (expected %02x, got %02x)\n",
+                pf(ctx, "WARNING: I2SCFG mismatch (expected %02x, got %02x)\n",
                     SYSTEM_I2SCFG, scanInfo.I2SCFG);
-                pf("         Overriding...\n");
+                pf(ctx, "         Overriding...\n");
             }
             overrideInfo.I2SCFG_override = true;
             overrideInfo.I2SCFG = SYSTEM_I2SCFG;
@@ -781,13 +1167,19 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
         /* Process any overrides */
         cmdListResult = adi_a2b_cmdlist_override(list, &overrideInfo);
 
+        /* Disable A2B IRQ processing */
+        a2b_irq_disable(context, A2B_BUS_NUM_1);
+
         /* Run the command list */
         cmdListResult = adi_a2b_cmdlist_execute(list, &execInfo);
 
+        /* Reenable A2B IRQ processing */
+        a2b_irq_enable(context, A2B_BUS_NUM_1);
+
         if (pf) {
-            pf("A2B config lines processed: %lu\n", execInfo.linesProcessed);
-            pf("A2B discovery result: %s\n", execInfo.resultStr);
-            pf("A2B nodes discovered: %d\n", execInfo.nodesDiscovered);
+            pf(ctx, "A2B config lines processed: %lu\n", execInfo.linesProcessed);
+            pf(ctx, "A2B discovery result: %s\n", execInfo.resultStr);
+            pf(ctx, "A2B nodes discovered: %d\n", execInfo.nodesDiscovered);
         }
 
         /* Close the command list */
@@ -798,12 +1190,8 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     } else {
         if (pf) {
-            pf("Error loading '%s' A2B init XML file", fileName);
+            pf(ctx, "Error loading '%s' A2B init XML file\n", fileName);
         }
-    }
-
-    if (useLocalTwiHandle && twiHandle) {
-        twi_close(&twiHandle);
     }
 
 }
@@ -811,41 +1199,80 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
 /***********************************************************************
  * CMD: df
  **********************************************************************/
-const char shell_help_df[] = "["SPIFFS_VOL_NAME"]\n";
+const char shell_help_df[] = "["
+    SPIFFS_VOL_NAME
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+    " | " EMMC_VOL_NAME
+#elif defined(SDCARD_VOL_NAME)
+    " | " SDCARD_VOL_NAME
+#endif
+    "]\n";
 const char shell_help_summary_df[] = "Shows internal filesystem disk full status";
 
+#if defined(EMMC_VOL_NAME) && defined(SDCARD_USE_EMMC)
+#define DF_SD_EMMC_VOL_NAME  EMMC_VOL_NAME
+#elif defined(SDCARD_VOL_NAME)
+#define DF_SD_EMMC_VOL_NAME  SDCARD_VOL_NAME
+#endif
+
 #include "spiffs.h"
+#ifdef DF_SD_EMMC_VOL_NAME
+#include "ff.h"
+#endif
 
 void shell_df( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    u32_t size, used;
-    s32_t serr;
     int fs = INVALID_FS;
+    int sf = 0;
+    int emmc = 0;
+    int sd = 0;
 
-    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
-    if (fs == INVALID_FS) {
-        return;
+    if (argc > 1) {
+        fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : SPIFFS_VOL_NAME);
+        if (fs == INVALID_FS) {
+            return;
+        }
+        sf = (fs == SPIFFS_FS); sd = (fs == SD_FS); emmc = (fs == EMMC_FS);
+    } else {
+        sf = 1; sd = 1; emmc = 1;
     }
 
     printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
 
-    if (fs == SPIFFS_FS) {
-        serr = SPIFFS_info(context->spiffsHandle, &size, &used);
+    if (sf) {
+        s32_t serr; u32_t ssize; u32_t sused;
+        serr = SPIFFS_info(context->spiffsHandle, &ssize, &sused);
         if (serr == SPIFFS_OK) {
           printf("%-10s %10u %10u %10u %5u\n", SPIFFS_VOL_NAME,
-            (unsigned)size, (unsigned)used, (unsigned)(size - used),
-            (unsigned)((100 * used) / size));
+            (unsigned)ssize, (unsigned)sused, (unsigned)(ssize - sused),
+            (unsigned)((100 * sused) / ssize));
         }
     }
+#ifdef DF_SD_EMMC_VOL_NAME
+    if (sd || emmc) {
+        FRESULT res;
+        FATFS *fs;
+        DWORD fre_clust, fre_blk, tot_blk, used_blk;
+        res = f_getfree(DF_SD_EMMC_VOL_NAME, &fre_clust, &fs);
+        tot_blk = ((fs->n_fatent - 2) * fs->csize)/2;
+        fre_blk = (fre_clust * fs->csize)/2;
+        used_blk = tot_blk - fre_blk;
+        if (res == FR_OK) {
+            printf("%-10s %10u %10u %10u %5u\n", DF_SD_EMMC_VOL_NAME,
+                (unsigned)tot_blk, (unsigned)used_blk, (unsigned)fre_blk,
+                (unsigned)((100 * used_blk) / tot_blk));
+        }
+    }
+#endif
 }
 
 /***********************************************************************
  * CMD: rm/del
  **********************************************************************/
-#include <unistd.h>
-
 const char shell_help_rm[] = "<file1> [<file2> ...]\n";
 const char shell_help_summary_rm[] = "Removes a file";
+
+#include <stdio.h>
 
 void shell_rm( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
@@ -857,7 +1284,7 @@ void shell_rm( SHELL_CONTEXT *ctx, int argc, char **argv )
   }
 
   for (i = 1; i < argc; i++) {
-    if (unlink(argv[i]) != 0) {
+    if (remove(argv[i]) != 0) {
       printf("Unable to remove '%s'\n", argv[i]);
     }
   }
@@ -985,7 +1412,11 @@ void shell_run( SHELL_CONTEXT *ctx, int argc, char **argv )
             } while (ok);
             fclose(f);
         } else {
-            printf("Failed to open '%s'\n", argv[i]);
+            if (ctx->interactive) {
+                printf("Failed to open '%s'\n", argv[i]);
+            } else {
+                syslog_printf("Failed to open '%s'\n", argv[i]);
+            }
         }
     }
 
@@ -998,77 +1429,47 @@ void shell_run( SHELL_CONTEXT *ctx, int argc, char **argv )
 const char shell_help_stacks[] = "\n";
 const char shell_help_summary_stacks[] = "Report task stack usage";
 
+static void shell_print_task_stack(SHELL_CONTEXT *ctx, TaskHandle_t task)
+{
+    if (task) {
+        printf(" %s: %u\n",
+            pcTaskGetName(task), (unsigned)uxTaskGetStackHighWaterMark(task)
+        );
+    }
+}
+
 void shell_stacks( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     APP_CONTEXT *context = &mainAppContext;
 
     printf("High Water Marks are in 32-bit words (zero is bad).\n");
     printf("Task Stask High Water Marks:\n");
-    if (context->startupTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->startupTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->startupTaskHandle));
-    }
-    if (context->houseKeepingTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->houseKeepingTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->houseKeepingTaskHandle));
-    }
-    if (context->uac2TaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->uac2TaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->uac2TaskHandle));
-    }
-    if (context->wavSrcTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->wavSrcTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->wavSrcTaskHandle));
-    }
-    if (context->wavSinkTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->wavSinkTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->wavSinkTaskHandle));
-    }
-    if (context->rtpRxTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->rtpRxTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->rtpRxTaskHandle));
-    }
-    if (context->rtpTxTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->rtpTxTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->rtpTxTaskHandle));
-    }
-    if (context->vbanRxTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->vbanRxTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->vbanRxTaskHandle));
-    }
-    if (context->vbanTxTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->vbanTxTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->vbanTxTaskHandle));
-    }
-    if (context->pollStorageTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->pollStorageTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->pollStorageTaskHandle));
-    }
-    if (context->a2bSlaveTaskHandle) {
-        printf(" %s: %u\n",
-            pcTaskGetName(context->a2bSlaveTaskHandle),
-            (unsigned)uxTaskGetStackHighWaterMark(context->a2bSlaveTaskHandle));
-    }
+
+    shell_print_task_stack(ctx, context->startupTaskHandle);
+    shell_print_task_stack(ctx, context->houseKeepingTaskHandle);
+    shell_print_task_stack(ctx, context->pollStorageTaskHandle);
+    shell_print_task_stack(ctx, context->pushButtonTaskHandle);
+    shell_print_task_stack(ctx, context->uac2TaskHandle);
+    shell_print_task_stack(ctx, context->wavSrcTaskHandle);
+    shell_print_task_stack(ctx, context->wavSinkTaskHandle);
+    shell_print_task_stack(ctx, context->a2bSlaveTaskHandle);
+    shell_print_task_stack(ctx, context->a2bIrqTaskHandle);
+    shell_print_task_stack(ctx, context->telnetTaskHandle);
+    shell_print_task_stack(ctx, context->vuTaskHandle);
+    shell_print_task_stack(ctx, context->rtpRxTaskHandle);
+    shell_print_task_stack(ctx, context->rtpTxTaskHandle);
+    shell_print_task_stack(ctx, context->vbanRxTaskHandle);
+    shell_print_task_stack(ctx, context->vbanTxTaskHandle);
 }
 
 /***********************************************************************
  * CMD: cpu
  **********************************************************************/
-#include "cpu_load.h"
-#include "clock_domain.h"
-
 const char shell_help_cpu[] = "\n";
 const char shell_help_summary_cpu[] = "Report cpu usage";
+
+#include "cpu_load.h"
+#include "clock_domain.h"
 
 void shell_cpu( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
@@ -1078,13 +1479,15 @@ void shell_cpu( SHELL_CONTEXT *ctx, int argc, char **argv )
     percentCpuLoad = cpuLoadGetLoad(&maxCpuLoad, true);
     printf("ARM CPU Load: %u%% (%u%% peak)\n",
         (unsigned)percentCpuLoad, (unsigned)maxCpuLoad);
+
     printf("SHARC0 Load:\n");
     for (i = 0; i < CLOCK_DOMAIN_MAX; i++) {
-        printf(" %s: %lu\n", clock_domain_str(i), context->sharc0Cycles[i]);
+        printf(" %s: %lu cycles\n", clock_domain_str(i), context->sharc0Cycles[i]);
     }
+
     printf("SHARC1 Load:\n");
     for (i = 0; i < CLOCK_DOMAIN_MAX; i++) {
-        printf(" %s: %lu\n", clock_domain_str(i), context->sharc1Cycles[i]);
+        printf(" %s: %lu cycles\n", clock_domain_str(i), context->sharc1Cycles[i]);
     }
 }
 
@@ -1096,8 +1499,8 @@ void shell_cpu( SHELL_CONTEXT *ctx, int argc, char **argv )
 #include "clocks.h"
 #include "clock_domain.h"
 
-const char shell_help_usb[] = "[in|out|domain] [a2b|system]\n";
-const char shell_help_summary_usb[] = "Displays USB performance tracking metrics";
+const char shell_help_usb[] = " [ [in|out| [domain [a2b|system] ] ] [reset] ] \n";
+const char shell_help_summary_usb[] = "View/set/clear runtime USB settings/metrics";
 
 void shell_usb( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
@@ -1131,6 +1534,15 @@ void shell_usb( SHELL_CONTEXT *ctx, int argc, char **argv )
             }
             return;
         }
+        if (strcmp(argv[2], "reset") == 0) {
+            if (showOut) {
+                uac2_reset_stats(UAC2_DIR_OUT);
+            }
+            if (showIn) {
+                uac2_reset_stats(UAC2_DIR_IN);
+            }
+            return;
+        }
     }
 
     /* USB OUT Stats */
@@ -1150,6 +1562,7 @@ void shell_usb( SHELL_CONTEXT *ctx, int argc, char **argv )
             (unsigned)context->uac2stats.rx.ep.minPktSize,
             (unsigned)context->uac2stats.rx.ep.maxPktSize
         );
+
         printf("  Buffer Fill: %u\n",
             (unsigned)bufferTrackGetFrames(UAC2_OUT_BUFFER_TRACK_IDX, context->cfg.usbOutChannels));
         printf("  Sample Rate Feedback: %u\n",
@@ -1197,12 +1610,13 @@ void shell_fsck(SHELL_CONTEXT *ctx, int argc, char **argv)
     int fs = INVALID_FS;
     s32_t ok;
 
-    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : "");
+    fs = fsVolOK(ctx, context, (argc > 1) ? argv[1] : SPIFFS_VOL_NAME);
     if (fs == INVALID_FS) {
         return;
     }
 
     printf("Be patient, this may take a while.\n");
+    printf("Checking...\n");
 
     if (fs == SPIFFS_FS) {
         ok = SPIFFS_check(context->spiffsHandle);
@@ -1212,6 +1626,10 @@ void shell_fsck(SHELL_CONTEXT *ctx, int argc, char **argv)
             printf(SPIFFS_VOL_NAME " CORRUPT: %d\n", (int)ok);
         }
     }
+
+    if ((fs == EMMC_FS) || (fs == SD_FS)) {
+        printf("Not supported.\n");
+    }
 }
 
 /***********************************************************************
@@ -1219,39 +1637,15 @@ void shell_fsck(SHELL_CONTEXT *ctx, int argc, char **argv)
  **********************************************************************/
 #include "flash_map.h"
 
-const char shell_help_update[] = "<app,fs>\n";
+const char shell_help_update[] = "\n";
 const char shell_help_summary_update[] = "Updates the firmware via xmodem";
 
 void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
     char *warn = "Updating the firmware is DANGEROUS - DO NOT REMOVE POWER!";
-    uint32_t flashBaseAddr;
-    uint32_t flashSize;
-    long size;
     FLASH_WRITE_STATE state;
     const FLASH_INFO *flash;
-    bool checkFs;
-    p_xm_data_func dataWriteFunc;
-
-    checkFs = false;
-    dataWriteFunc = flashDataWrite;
-
-    if (argc > 1) {
-        if ((argc == 2) && (strcmp(argv[1], "app") == 0)) {
-           flashBaseAddr = APP_OFFSET;
-           flashSize = APP_SIZE;
-        } else if ((argc == 2) && (strcmp(argv[1], "fs") == 0)) {
-           flashBaseAddr = SPIFFS_OFFSET;
-           flashSize = SPIFFS_SIZE;
-           checkFs = true;
-        }  else {
-           printf( "Usage: %s %s", argv[0], shell_help_update);
-           return;
-        }
-    } else {
-        flashBaseAddr = APP_OFFSET;
-        flashSize = APP_SIZE;
-    }
+    long size;
 
     /* Confirm action */
     if (confirmDanger(ctx, warn) == 0) {
@@ -1267,15 +1661,17 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     /* Configure the update */
     state.flash = flash;
-    state.addr = flashBaseAddr;
-    state.maxAddr = flashBaseAddr + flashSize;
+    state.addr = APP_OFFSET;
+    state.maxAddr = APP_OFFSET + APP_SIZE;
     state.eraseBlockSize = ERASE_BLOCK_SIZE;
     state.xmodem.ctx = ctx;
 
     /* Start the update */
     printf( "Start XMODEM transfer now... ");
-    size = xmodem_receive(dataWriteFunc, &state,
-        shell_xmodem_putchar, shell_xmodem_getchar);
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    size = XmodemReceiveCrc(flashDataWrite, &state, INT_MAX,
+        shell_xmodem_getchar, shell_xmodem_putchar);
+    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
 
     /* Wait a bit */
     delay(100);
@@ -1287,10 +1683,6 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
        printf("Received %ld bytes.\n", size);
     }
 
-    if (checkFs) {
-       shell_fsck(ctx, 0, NULL);
-    }
-
     printf("Done.\n");
 }
 
@@ -1300,19 +1692,19 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
 const char shell_help_meminfo[] = "\n";
 const char shell_help_summary_meminfo[] = "Displays UMM_MALLOC heap statistics";
 
-#include "sae.h"
 #include "umm_malloc_cfg.h"
 #include "umm_malloc_heaps.h"
+#include "sae.h"
+
 const static char *heapNames[] = UMM_HEAP_NAMES;
 
 void shell_meminfo(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    UMM_HEAP_INFO ummHeapInfo;
-    SAE_HEAP_INFO saeHeapInfo;
-    SAE_RESULT saeOk;
     int i;
     int ok;
 
+    /* UMM Malloc */
+    UMM_HEAP_INFO ummHeapInfo;
     for (i = 0; i < UMM_NUM_HEAPS; i++) {
         printf("Heap %s Info:\n", heapNames[i]);
         ok = umm_integrity_check((umm_heap_t)i);
@@ -1336,19 +1728,37 @@ void shell_meminfo(SHELL_CONTEXT *ctx, int argc, char **argv )
         printf("  Heap Integrity: %s\n", ok ? "OK" : "Corrupt");
     }
 
+
+    /* FreeRTOS */
+    HeapStats_t rtosHeapStats;
+    vPortGetHeapStats(&rtosHeapStats);
+
+    printf("FreeRTOS Info:\n");
+    printf("     Free: Blocks %8u,   Current %8u, Min  %8u\n",
+        (unsigned)rtosHeapStats.xNumberOfFreeBlocks,
+        (unsigned)rtosHeapStats.xAvailableHeapSpaceInBytes,
+        (unsigned)rtosHeapStats.xMinimumEverFreeBytesRemaining
+    );
+
+    /* SHARC Audio Engine (SAE) */
+    SAE_HEAP_INFO saeHeapInfo;
+    SAE_RESULT saeOk;
+
+    printf("SHARC Audio Engine Info:\n");
     saeOk = sae_heapInfo(context->saeContext, &saeHeapInfo);
-    if (saeOk) {
-        printf("SAE Heap Info:\n");
-        printf("   Blocks: Total  %8u, Allocated %8u, Free %8u\n",
-            saeHeapInfo.totalBlocks,
-            saeHeapInfo.allocBlocks,
-            saeHeapInfo.freeBlocks
+    if (saeOk == SAE_RESULT_OK) {
+        printf("  Blocks:  Total  %8u, Allocated %8u, Free %8u\n",
+            (unsigned)saeHeapInfo.totalBlocks,
+            (unsigned)saeHeapInfo.allocBlocks,
+            (unsigned)saeHeapInfo.freeBlocks
         );
-        printf("    Bytes: Contig %8u, Allocated %8u, Free %8u\n",
-            saeHeapInfo.maxContigFreeSize,
-            saeHeapInfo.allocSize,
-            saeHeapInfo.freeSize
+        printf("    Size:    Free %8u, Allocated %8u, Max  %8u\n",
+            (unsigned)saeHeapInfo.freeSize,
+            (unsigned)saeHeapInfo.allocSize,
+            (unsigned)saeHeapInfo.maxContigFreeSize
         );
+    } else {
+        printf(" ERROR!\n");
     }
 }
 
@@ -1371,7 +1781,6 @@ void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
     void *a2bInitSequence;
     uint32_t a2bIinitLength;
     int verbose;
-    bool useLocalTwiHandle;
     sTWI *twiHandle;
     TWI_SIMPLE_RESULT result;
     TWI_SIMPLE_PORT twiPort;
@@ -1383,10 +1792,12 @@ void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
         .twiRead = shell_discover_twi_read,
         .twiWrite = shell_discover_twi_write,
         .twiWriteRead = shell_discover_twi_write_read,
+        .twiWriteWrite = shell_discover_twi_write_write,
         .delay = shell_discover_delay,
         .getTime = shell_discover_get_time,
         .getBuffer = shell_discover_get_buffer,
         .freeBuffer = shell_discover_free_buffer,
+        .log = shell_discover_log,
         .usr = context
     };
 
@@ -1402,39 +1813,43 @@ void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
         verbose = 1;
     }
     if (verbose == 1) {
-        pf = printf;
+        pf = shell_printf;
     } else if (verbose == 2) {
-        pf = (PF)syslog_printf;
+        pf = shell_syslog_vprintf;
     } else {
         pf = NULL;
     }
 
     /* Determine TWI port */
     if (argc >= 4) {
-        twiPort = strtol(argv[3], NULL, 0);
+        twiPort = (TWI_SIMPLE_PORT)strtol(argv[3], NULL, 0);
     } else {
-        twiPort = 0;
-        }
-    if ((twiPort < TWI0) || (twiPort >= TWI_END)) {
+        twiPort = TWI0;
+    }
+    if (twiPort >= TWI_END) {
         if (pf) {
-            pf("Invalid I2C port!\n");
+            pf(ctx, "Invalid I2C port!\n");
         }
         return;
     }
 
     /* See if requested TWI port is already open globally */
+    twiHandle = NULL;
     if ((twiPort == TWI0) && context->twi0Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi0Handle;
         result = TWI_SIMPLE_SUCCESS;
+    } else if ((twiPort == TWI1) && context->twi1Handle) {
+        twiHandle = context->twi1Handle;
+        result = TWI_SIMPLE_SUCCESS;
     } else if ((twiPort == TWI2) && context->twi2Handle) {
-        useLocalTwiHandle = false;
         twiHandle = context->twi2Handle;
         result = TWI_SIMPLE_SUCCESS;
     }
     if (twiHandle == NULL) {
-        useLocalTwiHandle = true;
-        result = twi_open(twiPort, &twiHandle);
+        if (pf) {
+            pf(ctx, "I2C port %d is not configured in this project!\n", twiPort);
+        }
+        return;
     }
 
     /* Save the TWI handle to use */
@@ -1458,7 +1873,7 @@ void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
         cmdListResult = adi_a2b_cmdlist_play(list);
         if (cmdListResult != ADI_A2B_CMDLIST_SUCCESS) {
             if (pf) {
-                pf("Error processing command list\n");
+                pf(ctx, "Error processing command list\n");
             }
         }
 
@@ -1470,14 +1885,50 @@ void shell_cmdlist(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     } else {
         if (pf) {
-            pf("Error loading '%s' A2B init XML file\n", fileName);
+            pf(ctx, "Error loading '%s' A2B init XML file\n", fileName);
         }
     }
 
-    if (useLocalTwiHandle && twiHandle) {
-        twi_close(&twiHandle);
+}
+
+/***********************************************************************
+ * CMD: resize
+ **********************************************************************/
+const char shell_help_resize[] = "[columns [lines]]\n";
+const char shell_help_summary_resize[] = "Resize/Sync terminal window";
+
+#include "term.h"
+
+void shell_resize(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    uint32_t now;
+    unsigned cols, lines;
+
+    /* Resync screen size */
+    term_sync_size(&ctx->t);
+    now = rtosTimeMs();
+    while (rtosTimeMs() < (now + 100)) {
+        term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
     }
 
+    /* Get latest size */
+    cols = term_get_cols(&ctx->t);
+    lines = term_get_lines(&ctx->t);
+
+    /* Set terminal window size */
+    if (argc > 1) {
+        cols = atoi(argv[1]);
+        if (argc > 2) {
+            lines = atoi(argv[2]);
+        }
+        term_set_size(&ctx->t, cols, lines);
+    }
+
+    /* Show latest size */
+    if (argc == 1) {
+        printf("Size: %u x %u\n", cols, lines);
+        return;
+    }
 }
 
 /***********************************************************************
@@ -1491,103 +1942,239 @@ void shell_test(SHELL_CONTEXT *ctx, int argc, char **argv )
 }
 
 /***********************************************************************
- * CMD: sdtest
+ * CMD: vu
  **********************************************************************/
-const char shell_help_sdtest[] =
-    "[ms]\n"
-    "  ms - Number of milliseconds to read/write (default 5000)\n";
+const char shell_help_vu[] = "[domain a2b|system]\n";
+const char shell_help_summary_vu[] = "Show VU meters";
 
-const char shell_help_summary_sdtest[] =
-    "Test the write/read speed of the SD card";
+#include <math.h>
+#include "vu_audio.h"
 
-#include "wav_file_cfg.h"
+#define VU_UPDATE_DELAY_MS    75
 
-#define SDTEST_MS   (5000)
-#define IO_BUF_SIZE (WAVE_FILE_BUF_SIZE)
-#define RWBUFSIZE   (IO_BUF_SIZE/4)
-
-void shell_sdtest(SHELL_CONTEXT *ctx, int argc, char **argv )
+void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    char *fname = "sd:jo11IEjP6i.bin";
-    char *fbuf = NULL;
-    char *vbuf = NULL;
-    FILE *f = NULL;
-    uint32_t begin, end;
-    unsigned long KBPS;
-    size_t sz, rwsz;
-    uint32_t ms;
+    unsigned idx, channels;
+    SYSTEM_AUDIO_TYPE vu[VU_MAX_CHANNELS];
+    SYSTEM_AUDIO_TYPE value;
+    unsigned vu_pix[VU_MAX_CHANNELS];
+    double db;
+    unsigned lines, cols;
+    unsigned vu_lines, offset;
+    unsigned l;
+    int c;
+    char *screen[2] = { NULL, NULL };
+    char p;
+    unsigned screenIdx = 0;
+    unsigned screenSize;
+    unsigned screenPix;
+    bool split_screen;
+    unsigned ch;
+    unsigned line, col;
 
-    ms = SDTEST_MS;
+    char *RESET_MODE = "\x1B[0m";
+    char *BLACK = "\x1B[30;40m";
+
+    /* Black background with block char, 1 space between channels */
+    char *px = "\xDC";
+    char *RED = "\x1B[31;40m";
+    char *YELLOW = "\x1B[33;40m";
+    char *GREEN = "\x1B[32;40m";
+
     if (argc > 1) {
-        ms = atoi(argv[1]);
-    }
-
-    printf("Testing SD card read/write for %u mS...\n", (unsigned)ms);
-
-    vbuf = (char *)WAVE_FILE_CALLOC(IO_BUF_SIZE, 1);
-    fbuf = (char *)WAVE_FILE_CALLOC(RWBUFSIZE, 1);
-
-    /* Write Test */
-    f = fopen(fname, "wb");
-    if (f && vbuf && fbuf) {
-        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
-
-        memset(fbuf, 0xAA, RWBUFSIZE);
-        sz = 0;
-        begin = end = rtosTimeMs();
-        while ((end - begin) < ms) {
-            rwsz = fwrite(fbuf, 1, RWBUFSIZE, f);
-            sz += rwsz;
-            end = rtosTimeMs();
-        }
-
-        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
-
-        printf("Write: %lu KB/s (%u Bytes, %u ms)\n",
-            KBPS, (unsigned)sz, (unsigned)(end - begin));
-    }
-    if (f) {
-        fclose(f); f = NULL;
-    }
-
-    /* Read Test */
-    f = fopen(fname, "rb");
-    if (f && vbuf && fbuf) {
-        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
-
-        sz = 0;
-        begin = end = rtosTimeMs();
-        while ((end - begin) < ms) {
-            rwsz = fread(fbuf, 1, RWBUFSIZE, f);
-            if (rwsz == 0) {
-                fseek(f, 0, SEEK_SET);
+        if (strcmp(argv[1], "domain") == 0) {
+            if (argc > 2) {
+                if (strcmp(argv[2], "a2b") == 0) {
+                    clock_domain_set(context, CLOCK_DOMAIN_A2B, CLOCK_DOMAIN_BITM_VU_IN);
+                } else if (strcmp(argv[2], "system") == 0) {
+                    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VU_IN);
+                } else {
+                    printf("Bad domain\n");
+                }
+                return;
+            } else {
+                printf("No domain\n");
             }
-            sz += rwsz;
-            end = rtosTimeMs();
+            return;
+        }
+    }
+
+    channels = SYSTEM_MAX_CHANNELS;
+    if (argc > 1) {
+        channels = strtol(argv[1], NULL, 0);
+        if ((channels < 1) || (channels > VU_MAX_CHANNELS)) {
+            printf("Bad channels\n");
+            return;
+        }
+    }
+    channels = getVU(context, NULL, channels);
+
+    char *color = NULL;
+    char *old_color = NULL;
+
+    /* Get screen info */
+    lines = term_get_lines(&ctx->t);
+    cols = term_get_cols(&ctx->t);
+
+    /* Make screen buffers */
+    screenSize = lines * cols;
+    screen[0] = SHELL_MALLOC(screenSize);
+    memset(screen[0], 'B', screenSize);
+    screen[1] = SHELL_MALLOC(screenSize);
+    memset(screen[1], 'B', screenSize);
+
+    /* Calculate some values */
+    if (channels > 32) {
+        split_screen = true;
+        vu_lines = lines / 2 - 2;
+    } else {
+        split_screen = false;
+        vu_lines = lines;
+    }
+
+    /* Clear the screen */
+    term_clrscr(&ctx->t);
+
+    do {
+        /* Get VU linear values */
+        getVU(context, vu, channels);
+
+        /* Convert to db then to screen height */
+        for (idx = 0; idx < channels; idx++) {
+            value = vu[idx];
+            if (value > 0) {
+                db = 20.0 * log10((double)value / 2147483647.0);
+                /* Scale for VU meter -70dB = 0, 0dB = 'lines' */
+                db = ((double)vu_lines / 70.0) * db + (double)vu_lines;
+                /* Round up to show full scale */
+                db += 0.5;
+                /* Always show something if a signal is present */
+                if ((db < 1.0) && value) {
+                    db = 1.0;
+                }
+            } else {
+                db = 0.0;
+            }
+            vu_pix[idx] = (unsigned)db;
+            if (vu_pix[idx] > vu_lines) {
+                vu_pix[idx] = vu_lines;
+            }
+            if (vu_pix[idx] < 1) {
+                vu_pix[idx] = 1;
+            }
         }
 
-        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
+        /* Render up to first 32 channels into screen buffer */
+        ch = (split_screen) ? 32 : channels;
+        offset = (cols - ch * 2) / 2;
+        for (idx = 0; idx < ch; idx++) {
+            for (l = 0; l < vu_lines; l++) {
+                if (l < vu_pix[idx]) {
+                    if (l > ((vu_lines * 2) / 3)) {
+                        p = 'R';
+                    } else if (l > (vu_lines / 3)) {
+                        p = 'Y';
+                    } else {
+                        p = 'G';
+                    }
+                } else {
+                    p = 'B';
+                }
+                line = (lines - 1) - l;
+                col = offset + idx * 2;
+                screenPix = line * cols + col;
+                screen[screenIdx][screenPix] = p;
+            }
+        }
 
-        printf("Read: %lu KB/s (%u Bytes, %u ms)\n",
-            KBPS, (unsigned)sz, (unsigned)(end - begin));
+        /* Render next 32 channels into screen buffer */
+        if (split_screen) {
+            ch = channels - 32;
+            offset = (cols - ch * 2) / 2;
+            for (idx = 0; idx < ch; idx++) {
+                for (l = 0; l < vu_lines; l++) {
+                    if (l < vu_pix[idx+32]) {
+                        if (l > ((vu_lines * 2) / 3)) {
+                            p = 'R';
+                        } else if (l > (vu_lines / 3)) {
+                            p = 'Y';
+                        } else {
+                            p = 'G';
+                        }
+                    } else {
+                        p = 'B';
+                    }
+                    line = ((lines / 2) - 1) - l;
+                    col = offset + idx * 2;
+                    screenPix = line * cols + col;
+                    screen[screenIdx][screenPix] = p;
+                }
+            }
+        }
 
-        fclose(f); f = NULL;
-    }
-    if (f) {
-        fclose(f); f = NULL;
-    }
+        /* Draw only differences */
+        for (line = 0; line < lines; line++) {
+            for (col = 0; col < cols; col++) {
+                screenPix = line * cols + col;
+                if (screen[0][screenPix] != screen[1][screenPix]) {
+                    p = screen[screenIdx][screenPix];
+                    switch (p) {
+                        case 'R':
+                            color = RED;
+                            break;
+                        case 'Y':
+                            color = YELLOW;
+                            break;
+                        case 'G':
+                            color = GREEN;
+                            break;
+                        case 'B':
+                            color = BLACK;
+                            break;
+                        default:
+                            color = BLACK;
+                            break;
+                    }
+                    term_gotoxy(&ctx->t, col + 1, line + 1);
+                    if (color != old_color) {
+                        term_putstr(&ctx->t, color, strlen(color));
+                        color = old_color;
+                    }
+                    term_putstr(&ctx->t, px, 1);
+                }
+            }
+        }
 
-    if (f) {
-        fclose(f);
-    }
-    if (vbuf) {
-        WAVE_FILE_FREE(vbuf);
-    }
-    if (fbuf) {
-        WAVE_FILE_FREE(fbuf);
-    }
+        /* Toggle screens */
+        screenIdx = (screenIdx + 1) & 1;
 
-    unlink(fname);
+        /* Park the cursor */
+        term_gotoxy(&ctx->t, cols, lines);
+
+        /* Check for character */
+        c = term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
+        if (c < 0) {
+            vTaskDelay(pdMS_TO_TICKS(VU_UPDATE_DELAY_MS));
+        }
+
+    } while (c < 0);
+
+    /* Reset the character mode */
+    term_putstr(&ctx->t, RESET_MODE, strlen(RESET_MODE));
+
+    /* Clear the screen */
+    term_clrscr(&ctx->t);
+
+    /* Go back home */
+    term_gotoxy(&ctx->t, 0, 0);
+
+    /* Free screen buffers */
+    if (screen[0]) {
+        SHELL_FREE(screen[0]);
+    }
+    if (screen[1]) {
+        SHELL_FREE(screen[1]);
+    }
 }
 
 
@@ -1624,9 +2211,14 @@ const char shell_help_route[] =
     "  a2b        - A2B Audio\n"
     "  codec      - Analog TRS line in/out\n"
     "  spdif      - Optical SPDIF in/out\n"
+#ifdef SHARC_AUDIO_ENABLE
+    "  sharc0     - SHARC0 Audio\n"
+    "  sharc1     - SHARC1 Audio\n"
+#endif
     "  wav        - WAV file src/sink\n"
     "  rtp        - RTP network audio tx\n"
     "  vban       - VBAN network audio tx\n"
+    "  vu         - VU Meter sink\n"
     "  off        - Turn off the stream\n"
     " No arguments\n"
     "  Show routing table\n"
@@ -1634,54 +2226,71 @@ const char shell_help_route[] =
     "  Clear routing table\n";
 const char shell_help_summary_route[] = "Configures the audio routing table";
 
+#include "route.h"
+
 static char *stream2str(int streamID)
 {
     char *str = "NONE";
 
     switch (streamID) {
-        case IPC_STREAMID_UNKNOWN:
+        case STREAM_ID_UNKNOWN:
             str = "NONE";
             break;
-        case IPC_STREAMID_CODEC_IN:
+        case STREAM_ID_CODEC_IN:
             str = "CODEC_IN";
             break;
-        case IPC_STREAMID_CODEC_OUT:
+        case STREAM_ID_CODEC_OUT:
             str = "CODEC_OUT";
             break;
-        case IPC_STREAMID_SPDIF_IN:
+        case STREAM_ID_SPDIF_IN:
             str = "SPDIF_IN";
             break;
-        case IPC_STREAMID_SPDIF_OUT:
+        case STREAM_ID_SPDIF_OUT:
             str = "SPDIF_OUT";
             break;
-        case IPC_STREAMID_A2B_IN:
+        case STREAM_ID_A2B_IN:
             str = "A2B_IN";
             break;
-        case IPC_STREAMID_A2B_OUT:
+        case STREAM_ID_A2B_OUT:
             str = "A2B_OUT";
             break;
-        case IPC_STREAMID_USB_RX:
+        case STREAM_ID_USB_RX:
             str = "USB_RX";
             break;
-        case IPC_STREAMID_USB_TX:
+        case STREAM_ID_USB_TX:
             str = "USB_TX";
             break;
-        case IPC_STREAM_ID_WAV_SRC:
+        case STREAM_ID_WAV_SRC:
             str = "WAV_SRC";
             break;
-        case IPC_STREAM_ID_WAV_SINK:
+        case STREAM_ID_WAV_SINK:
             str = "WAV_SINK";
             break;
-        case IPC_STREAM_ID_RTP_RX:
+        case STREAM_ID_SHARC0_IN:
+            str = "SHARC0_IN";
+            break;
+        case STREAM_ID_SHARC0_OUT:
+            str = "SHARC0_OUT";
+            break;
+        case STREAM_ID_SHARC1_IN:
+            str = "SHARC1_IN";
+            break;
+        case STREAM_ID_SHARC1_OUT:
+            str = "SHARC1_OUT";
+            break;
+        case STREAM_ID_VU_IN:
+            str = "VU_IN";
+            break;
+        case STREAM_ID_RTP_RX:
             str = "RTP_RX";
             break;
-        case IPC_STREAM_ID_RTP_TX:
+        case STREAM_ID_RTP_TX:
             str = "RTP_TX";
             break;
-        case IPC_STREAM_ID_VBAN_RX:
+        case STREAM_ID_VBAN_RX:
             str = "VBAN_RX";
             break;
-        case IPC_STREAM_ID_VBAN_TX:
+        case STREAM_ID_VBAN_TX:
             str = "VBAN_TX";
             break;
         default:
@@ -1692,41 +2301,48 @@ static char *stream2str(int streamID)
     return(str);
 }
 
-int str2stream(char *stream, bool src)
+STREAM_ID str2stream(char *stream, bool src)
 {
     if (strcmp(stream, "usb") == 0) {
-        return(src ? IPC_STREAMID_USB_RX : IPC_STREAMID_USB_TX);
+        return(src ? STREAM_ID_USB_RX : STREAM_ID_USB_TX);
     } else if (strcmp(stream, "codec") == 0) {
-        return(src ? IPC_STREAMID_CODEC_IN : IPC_STREAMID_CODEC_OUT);
+        return(src ? STREAM_ID_CODEC_IN : STREAM_ID_CODEC_OUT);
     } else if (strcmp(stream, "spdif") == 0) {
-        return(src ? IPC_STREAMID_SPDIF_IN : IPC_STREAMID_SPDIF_OUT);
+        return(src ? STREAM_ID_SPDIF_IN : STREAM_ID_SPDIF_OUT);
     } else if (strcmp(stream, "a2b") == 0) {
-        return(src ? IPC_STREAMID_A2B_IN : IPC_STREAMID_A2B_OUT);
+        return(src ? STREAM_ID_A2B_IN : STREAM_ID_A2B_OUT);
     } else if (strcmp(stream, "wav") == 0) {
-        return(src ? IPC_STREAM_ID_WAV_SRC : IPC_STREAM_ID_WAV_SINK);
+        return(src ? STREAM_ID_WAV_SRC : STREAM_ID_WAV_SINK);
+    } else if (strcmp(stream, "sharc0") == 0) {
+        return(src ? STREAM_ID_SHARC0_OUT : STREAM_ID_SHARC0_IN);
+    } else if (strcmp(stream, "sharc1") == 0) {
+        return(src ? STREAM_ID_SHARC1_OUT : STREAM_ID_SHARC1_IN);
+    } else if (strcmp(stream, "vu") == 0) {
+        return(src ? STREAM_ID_MAX : STREAM_ID_VU_IN);
     } else if (strcmp(stream, "rtp") == 0) {
-        return(src ? IPC_STREAM_ID_RTP_RX : IPC_STREAM_ID_RTP_TX);
+        return(src ? STREAM_ID_RTP_RX : STREAM_ID_RTP_TX);
     } else if (strcmp(stream, "vban") == 0) {
-        return(src ? IPC_STREAM_ID_VBAN_RX : IPC_STREAM_ID_VBAN_TX);
+        return(src ? STREAM_ID_VBAN_RX : STREAM_ID_VBAN_TX);
+    } else if (strcmp(stream, "a2b2") == 0) {
+        return(src ? STREAM_ID_A2B2_IN : STREAM_ID_A2B2_OUT);
     } else if (strcmp(stream, "off") == 0) {
-        return(IPC_STREAMID_UNKNOWN);
+        return(STREAM_ID_UNKNOWN);
     }
 
-    return(IPC_STREAM_ID_MAX);
+    return(STREAM_ID_MAX);
 }
 
 void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
-    IPC_MSG_ROUTING *routeInfo = (IPC_MSG_ROUTING *)&context->routingMsg->routes;
     ROUTE_INFO *route;
-    unsigned i;
     unsigned idx, srcOffset, sinkOffset, channels, attenuation, mix;
-    int srcID, sinkID;
+    STREAM_ID srcID, sinkID;
+    unsigned i;
 
     if (argc == 1) {
         printf("Audio Routing\n");
-        for (i = 0; i < routeInfo->numRoutes; i++) {
-            route = &routeInfo->routes[i];
+        for (i = 0; i < MAX_AUDIO_ROUTES; i++) {
+            route = context->routingTable + i;
             printf(" [%02d]: %s[%u] -> %s[%u], CHANNELS: %u, %s%udB, %s\n",
                 i,
                 stream2str(route->srcID), route->srcOffset,
@@ -1739,13 +2355,13 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
         return;
     } else if (argc == 2) {
         if (strcmp(argv[1], "clear") == 0) {
-            for (i = 0; i < routeInfo->numRoutes; i++) {
-                route = &routeInfo->routes[i];
+            for (i = 0; i < MAX_AUDIO_ROUTES; i++) {
+                route = context->routingTable + i;
                 /* Configure the route atomically in a critical section */
                 taskENTER_CRITICAL();
-                route->srcID = IPC_STREAMID_UNKNOWN;
+                route->srcID = STREAM_ID_UNKNOWN;
                 route->srcOffset = 0;
-                route->sinkID = IPC_STREAMID_UNKNOWN;
+                route->sinkID = STREAM_ID_UNKNOWN;
                 route->sinkOffset = 0;
                 route->channels = 0;
                 route->attenuation = 0;
@@ -1757,12 +2373,11 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     /* Confirm a valid route index */
     idx = atoi(argv[1]);
-    if (idx > routeInfo->numRoutes) {
+    if (idx > MAX_AUDIO_ROUTES) {
         printf("Invalid idx\n");
         return;
     }
-
-    route = &routeInfo->routes[idx];
+    route = context->routingTable + idx;
     srcID = route->srcID;
     srcOffset = route->srcOffset;
     sinkID = route->sinkID;
@@ -1773,7 +2388,7 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     /* Gather the source info */
     if (argc >= 3) {
         srcID = str2stream(argv[2], true);
-        if (srcID == IPC_STREAM_ID_MAX) {
+        if (srcID == STREAM_ID_MAX) {
             printf("Invalid src\n");
             return;
         }
@@ -1785,7 +2400,7 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     /* Gather the sink info */
     if (argc >= 5) {
         sinkID = str2stream(argv[4], false);
-        if (sinkID == IPC_STREAM_ID_MAX) {
+        if (sinkID == STREAM_ID_MAX) {
             printf("Invalid sink\n");
             return;
         }
@@ -1797,6 +2412,10 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     /* Get the number of channels */
     if (argc >= 7) {
         channels = atoi(argv[6]);
+        if (channels > SYSTEM_MAX_CHANNELS) {
+            printf("Invalid channels\n");
+            return;
+        }
     }
 
     /* Get the attenuation */
@@ -2423,8 +3042,8 @@ void shell_cmp( SHELL_CONTEXT *ctx, int argc, char **argv )
  * CMD: a2b
  **********************************************************************/
 const char shell_help_a2b[] = "[cmd]\n"
-  "  mode [main | sub]   - Bus mode 'main node' or 'sub node'\n"
-  "                           (default 'main')\n"
+  "  mode [main|sub]   - Bus mode 'main node' or 'sub node'\n"
+  "                      (default 'main')\n"
   "  No arguments, show current bus mode\n";
 
 const char shell_help_summary_a2b[] = "Set A2B Parameters";
@@ -2452,7 +3071,7 @@ void shell_a2b( SHELL_CONTEXT *ctx, int argc, char **argv )
             }
             printf("Setting A2B mode to %s\n",
                 mode == A2B_BUS_MODE_MAIN ? "main" : "sub");
-            ok = ad2425_set_mode(context, mode);
+            ok = a2b_set_mode(context, mode);
             if (!ok) {
                 printf("Error setting A2B mode!\n");
             }
@@ -2460,7 +3079,6 @@ void shell_a2b( SHELL_CONTEXT *ctx, int argc, char **argv )
             printf("Invalid subcommand\n");
         }
     }
-
 }
 
 /***********************************************************************
@@ -2525,3 +3143,197 @@ void shell_delay(SHELL_CONTEXT *ctx, int argc, char **argv )
     }
 }
 
+/***********************************************************************
+ * CMD: sdtest
+ **********************************************************************/
+const char shell_help_sdtest[] =
+    "[ms]\n"
+    "  ms - Number of milliseconds to read/write (default 5000)\n";
+
+const char shell_help_summary_sdtest[] =
+    "Test the write/read speed of the SD card";
+
+#include "wav_file_cfg.h"
+
+#define SDTEST_MS   (5000)
+#define IO_BUF_SIZE (WAVE_FILE_BUF_SIZE)
+#define RWBUFSIZE   (IO_BUF_SIZE/4)
+
+void shell_sdtest(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+#if defined(SDCARD_VOL_NAME) && !defined(SDCARD_USE_EMMC)
+    char *fname = "sd:jo11IEjP6i.bin";
+    char *fbuf = NULL;
+    char *vbuf = NULL;
+    FILE *f = NULL;
+    uint32_t begin, end;
+    unsigned long KBPS;
+    size_t sz, rwsz;
+    uint32_t ms;
+
+    ms = SDTEST_MS;
+    if (argc > 1) {
+        ms = atoi(argv[1]);
+    }
+
+    printf("Testing SD card read/write for %u mS...\n", (unsigned)ms);
+
+    vbuf = (char *)WAVE_FILE_CALLOC(IO_BUF_SIZE, 1);
+    fbuf = (char *)WAVE_FILE_CALLOC(RWBUFSIZE, 1);
+
+    /* Fill with a simple test pattern */
+    for (sz = 0; sz < RWBUFSIZE; sz++) {
+        fbuf[sz] = sz & 0xFF;
+    }
+
+    /* Write Test */
+    f = fopen(fname, "wb");
+    if (f && vbuf && fbuf) {
+        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
+
+        sz = 0;
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            rwsz = fwrite(fbuf, 1, RWBUFSIZE, f);
+            sz += rwsz;
+            end = rtosTimeMs();
+        }
+
+        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
+
+        printf("Write: %lu KB/s (%u Bytes, %u ms)\n",
+            KBPS, (unsigned)sz, (unsigned)(end - begin));
+    }
+    if (f) {
+        fclose(f); f = NULL;
+    }
+
+    /* Read Test */
+    f = fopen(fname, "rb");
+    if (f && vbuf && fbuf) {
+        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
+
+        sz = 0;
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            rwsz = fread(fbuf, 1, RWBUFSIZE, f);
+            if (rwsz == 0) {
+                fseek(f, 0, SEEK_SET);
+            }
+            sz += rwsz;
+            end = rtosTimeMs();
+        }
+
+        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
+
+        printf("Read: %lu KB/s (%u Bytes, %u ms)\n",
+            KBPS, (unsigned)sz, (unsigned)(end - begin));
+
+        fclose(f); f = NULL;
+    }
+    if (f) {
+        fclose(f); f = NULL;
+    }
+
+    if (f) {
+        fclose(f);
+    }
+    if (vbuf) {
+        WAVE_FILE_FREE(vbuf);
+    }
+    if (fbuf) {
+        WAVE_FILE_FREE(fbuf);
+    }
+
+    unlink(fname);
+#else
+    printf("SDCARD not available.\n");
+#endif
+}
+
+/***********************************************************************
+ * CMD: date
+ **********************************************************************/
+const char shell_help_date[] =
+  "<now>\n"
+  "  now - RFC3339 date/time string\n";
+const char shell_help_summary_date[] = "Get/Set current date and time";
+
+#include "util.h"
+#include "timestamp.h"
+
+void shell_date(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    struct timeval tv;
+    timestamp_t ts;
+    char tmbuf[64] = { 0 };
+    int err, len;
+
+    if (argc > 1) {
+        strncpy(tmbuf, argv[1], sizeof(tmbuf));
+        len = strlen(tmbuf);
+        if (len == 19) {
+            strcat(tmbuf, "Z"); len++;
+        }
+        err = (len != 20);
+        if (err == 0) {
+            err = timestamp_parse(tmbuf, strlen(tmbuf), &ts);
+        }
+        if (err) {
+            printf("Timestamp format error!\n");
+            return;
+        }
+        tv.tv_sec = ts.sec;
+        tv.tv_usec = ts.nsec / 1000;
+        util_set_time_unix(&tv);
+    }
+
+    util_gettimeofday(&tv, NULL);
+    ts.sec = tv.tv_sec;
+    ts.nsec = tv.tv_usec * 10000;
+    ts.offset = 0;
+    timestamp_format(tmbuf, sizeof(tmbuf), &ts, 'T');
+    printf("%s\n", tmbuf);
+}
+
+/***********************************************************************
+ * CMD: eth
+ **********************************************************************/
+#include "lwip/netif.h"
+
+const char shell_help_eth[] = "\n";
+const char shell_help_summary_eth[] = "Report ethernet status";
+
+static void eth_print_addr(SHELL_CONTEXT *ctx, char *name, ip_addr_t *net_addr)
+{
+    printf("%s: %d.%d.%d.%d\n", name,
+        ip4_addr1(net_addr), ip4_addr2(net_addr),
+        ip4_addr3(net_addr), ip4_addr4(net_addr));
+}
+
+void shell_eth(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    struct netif *n;
+    int netifs = 1;
+    int i;
+
+#ifdef EMAC1_ENABLE
+    netifs += 1;
+#endif
+
+    for (i = 0; i < netifs; i++) {
+        n = &context->eth[i].netif;
+        printf("%c%c%u:\n", n->name[0], n->name[1], n->num);
+        printf(" Hostname: %s\n", n->hostname);
+        eth_print_addr(ctx, " IP Address", &n->ip_addr);
+        eth_print_addr(ctx, " Gateway", &n->gw);
+        eth_print_addr(ctx, " Netmask", &n->netmask);
+        printf(" MAC Addr: %02X:%02X:%02X:%02X:%02X:%02X\n",
+            n->hwaddr[0], n->hwaddr[1], n->hwaddr[2],
+            n->hwaddr[3], n->hwaddr[4], n->hwaddr[5]
+        );
+        printf(" Link: %s\n",
+            n->flags & NETIF_FLAG_LINK_UP ? "Up" : "Down"
+        );
+    }
+}

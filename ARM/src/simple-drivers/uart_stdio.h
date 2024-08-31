@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -22,7 +22,14 @@
 #define STDIO_TIMEOUT_NONE  (UART_SIMPLE_TIMEOUT_NONE)
 #define STDIO_TIMEOUT_INF   (UART_SIMPLE_TIMEOUT_INF)
 
+/* SHARC+ ioctl cmd values */
+#define UART_STDIO_MODE_SET     0
+
+#define UART_STDIO_MODE_COOKED ((int)0)
+#define UART_STDIO_MODE_RAW    ((int)1)
+
 void uart_stdio_init(sUART *uart);
 void uart_stdio_set_read_timeout(int timeout);
+void uart_stdio_set_mode(int mode);
 
 #endif

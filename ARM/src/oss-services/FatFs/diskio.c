@@ -13,7 +13,7 @@
 
 #include "fatfs_diskio_cfg.h"
 
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
 #include "sdcard_simple.h"
 #include "sdcard.h"
 static sSDCARD *sdcardHandle = NULL;
@@ -41,8 +41,13 @@ DSTATUS disk_status (
     DSTATUS status = RES_ERROR;
 
     switch (pdrv) {
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+        case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
         case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
             if (sdcardHandle != NULL) {
                 status = RES_OK;
             }
@@ -75,8 +80,13 @@ DSTATUS disk_initialize (
     DSTATUS status = RES_ERROR;
 
     switch (pdrv) {
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+        case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
         case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
             sdcardHandle = sdcardGetHandle();
             if (sdcardHandle != NULL) {
                 status = RES_OK;
@@ -114,8 +124,13 @@ DRESULT disk_read (
     DSTATUS status = RES_ERROR;
 
     switch (pdrv) {
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+        case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
         case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
             if (sdcardHandle) {
                 SDCARD_SIMPLE_RESULT sdResult;
                 sdResult = sdcard_read(sdcardHandle, (void *)buff, sector, count);
@@ -161,8 +176,13 @@ DRESULT disk_write (
     DSTATUS status = RES_ERROR;
 
     switch (pdrv) {
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+        case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
         case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
             if (sdcardHandle) {
                 SDCARD_SIMPLE_RESULT sdResult;
                 sdResult = sdcard_write(sdcardHandle, (void *)buff, sector, count);
@@ -207,10 +227,19 @@ DRESULT disk_ioctl (
 
     switch (cmd) {
 
+        case GET_BLOCK_SIZE:
+            /* Not implemented */
+            break;
+
         case CTRL_SYNC:
             switch (pdrv) {
-#ifdef FATFS_DISKIO_ENABLE_SDCARD
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+                case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
                 case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
                     if (sdcardHandle) {
                         SDCARD_SIMPLE_RESULT result;
                         result = sdcard_readyForData(sdcardHandle);
@@ -223,6 +252,31 @@ DRESULT disk_ioctl (
 #ifdef FATFS_DISKIO_ENABLE_MSD
                 case FATFS_DISKIO_MSD_DEVICE:
                     status = RES_OK;
+                    break;
+#endif
+                default:
+                    break;
+            }
+            break;
+        case GET_SECTOR_COUNT:
+            switch (pdrv) {
+#if defined(FATFS_DISKIO_ENABLE_SDCARD) || defined(FATFS_DISKIO_ENABLE_EMMC)
+#ifdef FATFS_DISKIO_EMMC_DEVICE
+                case FATFS_DISKIO_EMMC_DEVICE:
+#endif
+#ifdef FATFS_DISKIO_SDCARD_DEVICE
+                case FATFS_DISKIO_SDCARD_DEVICE:
+#endif
+                    if (sdcardHandle) {
+                        SDCARD_SIMPLE_RESULT result;
+                        SDCARD_SIMPLE_INFO info;
+                        LBA_t *sectors = (LBA_t *)buff;
+                        result = sdcard_info(sdcardHandle, &info);
+                        if (result == SDCARD_SIMPLE_SUCCESS) {
+                            *sectors = info.capacity / 512;
+                            status = RES_OK;
+                        }
+                    }
                     break;
 #endif
                 default:

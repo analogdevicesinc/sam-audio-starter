@@ -36,7 +36,6 @@ enum {
 
 static SYSTEM_AUDIO_TYPE rxBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 static SYSTEM_AUDIO_TYPE txBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE txBuffer2[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 
 /* This task puts VBAN frames into the VBAN Rx ring buffer */
 portTASK_FUNCTION(vbanRxTask, pvParameters)
@@ -181,105 +180,101 @@ void vban_audio_init(APP_CONTEXT *context)
 }
 
 /* Transfers VBAN Tx audio (ISR context) */
-SAE_MSG_BUFFER *xferVbanTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferVbanTxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     VBAN_STREAM *vbanTx = &context->vbanTx;
     PaUtilRingBuffer *vbanTxRB = context->vbanTxRB;
     CLOCK_DOMAIN myCd;
+    BaseType_t wake;
+
+    static bool first = true;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_VBAN_TX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_VBAN_TX);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
     if (!vbanTx->enabled) {
-        return(msg);
+        *numChannels = 0;
+        first = true;
+        return(1);
     }
 
-    samplesIn = audio->numChannels * audio->numFrames;
+    samplesIn = vbanTx->channels * SYSTEM_BLOCK_SIZE;
     samplesOut = PaUtil_GetRingBufferWriteAvailable(vbanTxRB);
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        return(msg);
+         *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn <= samplesOut) {
-        copyAndConvert(
-            audio->data, audio->wordSize, audio->numChannels,
-            txBuffer2, sizeof(SYSTEM_AUDIO_TYPE), vbanTx->channels,
-            audio->numFrames, true
-        );
-        PaUtil_WriteRingBuffer(
-            vbanTxRB, txBuffer2, vbanTx->channels * audio->numFrames
-        );
+        if (!first) {
+            PaUtil_WriteRingBuffer(
+                vbanTxRB, audio, vbanTx->channels * SYSTEM_BLOCK_SIZE
+            );
+        }
     } else {
         vbanTxOverflow++;
     }
 
-    xTaskNotifyFromISR(context->vbanTxTaskHandle,
-        VBAN_TASK_AUDIO_TX_MORE_DATA, eSetValueWithoutOverwrite, NULL
-    );
+    memset(audio, 0, samplesIn * sizeof(SYSTEM_AUDIO_TYPE));
+    *numChannels = vbanTx->channels;
+    first = false;
 
-    return(msg);
+    if (samplesOut < (VBAN_RING_BUF_SAMPLES / 2)) {
+        xTaskNotifyFromISR(context->vbanTxTaskHandle,
+            VBAN_TASK_AUDIO_TX_MORE_DATA, eSetValueWithoutOverwrite, &wake
+        );
+        portYIELD_FROM_ISR(wake);
+    }
+
+    return(1);
 }
 
 /* Transfers VBAN Rx audio (ISR context) */
-SAE_MSG_BUFFER *xferVbanRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferVbanRxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     VBAN_STREAM *vbanRx = &context->vbanRx;
     PaUtilRingBuffer *vbanRxRB = context->vbanRxRB;
     CLOCK_DOMAIN myCd;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_VBAN_RX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_VBAN_RX);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
     if (!vbanRx->enabled || vbanRx->preRoll) {
-        audio->numChannels = 0;
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     samplesIn = PaUtil_GetRingBufferReadAvailable(vbanRxRB);
     samplesOut = vbanRx->channels * SYSTEM_BLOCK_SIZE;
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        audio->numChannels = 0;
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn >= samplesOut) {
-        audio->numChannels = vbanRx->channels;
-        audio->numFrames = SYSTEM_BLOCK_SIZE;
-        audio->wordSize = sizeof(SYSTEM_AUDIO_TYPE);
         PaUtil_ReadRingBuffer(
-            vbanRxRB, audio->data, samplesOut
+            vbanRxRB, audio, samplesOut
         );
+        *numChannels = vbanRx->channels;
     } else {
-        audio->numChannels = 0;
         vbanRx->preRoll = true;
         vbanRxUnderflow++;
+        *numChannels = 0;
     }
 
-    return(msg);
+    return(1);
 }

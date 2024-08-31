@@ -16,6 +16,7 @@
 #include "flash.h"
 
 s32_t spiffs_mount(spiffs *fs, FLASH_INFO *f);
+void spiffs_unmount(spiffs *fs, FLASH_INFO **fi);
 s32_t spiffs_format(spiffs *fs);
 
 void spiffs_lock(spiffs *fs);

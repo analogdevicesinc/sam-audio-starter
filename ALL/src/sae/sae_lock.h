@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* WARNING: Do not change these values! */
 #define SAE_SHARC_ARM_IPC_UNLOCKED   (0)
 #define SAE_SHARC_ARM_IPC_LOCKED     (1)
 

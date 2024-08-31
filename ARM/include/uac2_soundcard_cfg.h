@@ -12,6 +12,8 @@
 #ifndef _uac2_cfg_h
 #define _uac2_cfg_h
 
+#include <sys/platform.h>
+
 #include "umm_malloc.h"
 
 /* Sizes */
@@ -38,7 +40,7 @@
     umm_free_heap(UAC2_HEAP, x)
 
 #define UAC2_L2_MALLOC_ALIGNED(x)  \
-    umm_malloc_heap_aligned(UAC2_L2_HEAP, x, sizeof(uint32_t))
+    umm_malloc_heap_aligned(UAC2_L2_HEAP, x, ADI_CACHE_LINE_LENGTH)
 
 #define UAC2_L2_FREE_ALIGNED(x)  \
     umm_free_heap_aligned(UAC2_L2_HEAP, x)

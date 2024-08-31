@@ -19,15 +19,38 @@
 
 bool sae_lock(volatile uint32_t *lock)
 {
-    uint32_t tmp = SAE_SHARC_ARM_IPC_UNLOCKED;
     __sync_synchronize();
+#if defined(__ADSPCORTEXA55__)
+    asm volatile(
+        "    mov     w2, #1\n\t"
+        "l1: ldaxr   w1, [%[lock]]\n\t"
+        "    cbnz    w1, l1\n\t"
+        "    stxr    w1, w2, [%[lock]]\n\t"
+        "    cbnz    w1, l1\n\t"
+        : /* No output operands */
+        : [lock] "r" (lock)
+        : "w2", "w1"
+    );
+    return(true);
+#else
+    uint32_t tmp = SAE_SHARC_ARM_IPC_UNLOCKED;
     return __atomic_compare_exchange_n(lock, &tmp, SAE_SHARC_ARM_IPC_LOCKED,
             false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+#endif
 }
 
 bool sae_unlock(volatile uint32_t *lock)
 {
+#if defined(__ADSPCORTEXA55__)
+    asm volatile(
+        "    stlr    wzr, [%[lock]]\n\t"
+        : /* No output operands */
+        : [lock] "r" (lock)
+        : /* No clobber list */
+    );
+#else
     __atomic_store_n(lock, SAE_SHARC_ARM_IPC_UNLOCKED, __ATOMIC_SEQ_CST);
+#endif
     __sync_synchronize();
     return(true);
 }

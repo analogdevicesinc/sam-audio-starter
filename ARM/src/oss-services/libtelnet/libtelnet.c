@@ -11,6 +11,10 @@
  * all present and future rights to this code under copyright law.
  */
 
+/*
+ * This file has been modified by Analog Devices, Inc.
+ */
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

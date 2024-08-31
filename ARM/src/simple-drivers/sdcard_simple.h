@@ -84,8 +84,8 @@ typedef enum SDCARD_SIMPLE_RESULT {
  * @brief Simple SDCARD types.
  ******************************************************************/
 #define SDCARD_TYPE_STRINGS { \
-    "SDv2", \
-    "SDv2 HC", \
+    "", \
+    "HC", \
     "Unusable" \
 }
 
@@ -95,10 +95,23 @@ typedef enum _SDCARD_SIMPLE_TYPE {
     SDCARD_UNUSABLE_CARD,
 } SDCARD_SIMPLE_TYPE;
 
+#define SDCARD_CARD_STRINGS { \
+    "Unknown", \
+    "SDv2", \
+    "eMMC" \
+}
+
+typedef enum _SDCARD_SIMPLE_CARD {
+    SDCARD_CARD_TYPE_UNKNOWN  = 0,
+    SDCARD_CARD_TYPE_SD,
+    SDCARD_CARD_TYPE_EMMC
+} SDCARD_SIMPLE_CARD;
+
 /*!****************************************************************
  * @brief Simple SDCARD info
  ******************************************************************/
 typedef struct _SDCARD_SIMPLE_INFO {
+    SDCARD_SIMPLE_CARD card;
     SDCARD_SIMPLE_TYPE type;
     uint64_t capacity;
     uint32_t speed;
@@ -156,13 +169,15 @@ SDCARD_SIMPLE_RESULT sdcard_deinit(void);
  * This function is thread safe.
  *
  * @param [in]  port       SDCARD port number to open
+ * @param [in]  card       SDCARD_CARD_TYPE_SD or SDCARD_CARD_TYPE_EMMC
  * @param [out] sdcardHandle  A pointer to an opaque simple SDCARD (sSDCARD)
  *                         handle.
  *
  * @return Returns SDCARD_SIMPLE_SUCCESS if successful, otherwise
  *         an error.
  ******************************************************************/
-SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port, sSDCARD **sdcardHandle);
+SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port,
+    SDCARD_SIMPLE_CARD card, sSDCARD **sdcardHandle);
 
 /*!****************************************************************
  * @brief Simple SDCARD driver port close.

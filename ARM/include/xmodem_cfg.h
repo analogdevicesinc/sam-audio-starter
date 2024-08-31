@@ -12,9 +12,9 @@
 #ifndef _XMODEM_CFG_H
 #define _XMODEM_CFG_H
 
-#include "umm_malloc.h"
+#define DLY_1S      1000000
+#define MAXRETRANS  60
 
-#define XMODEM_MALLOC  umm_malloc
-#define XMODEM_FREE    umm_free
+#define XMODEM_1K
 
 #endif

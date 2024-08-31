@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -282,7 +282,7 @@ UART_SIMPLE_RESULT uart_read(sUART *uart, uint8_t *in, uint8_t *inLen)
     }
     UART_EXIT_CRITICAL();
     if (empty) {
-        rtosResult = xSemaphoreTake(uart->portRxBlock, uart->readTimeout);
+        rtosResult = xSemaphoreTake(uart->portRxBlock, uart->rtosReadTimeout);
         if (rtosResult == pdFALSE) {
             UART_ENTER_CRITICAL();
             if (uart->rxSleeping) {
@@ -531,7 +531,7 @@ UART_SIMPLE_RESULT uart_setTimeouts(sUART *uartHandle,
         } else if (uart->writeTimeout == UART_SIMPLE_TIMEOUT_NONE) {
             uart->rtosWriteTimeout = 0;
         } else {
-            uart->rtosWriteTimeout = pdMS_TO_TICKS(uart->readTimeout);
+            uart->rtosWriteTimeout = pdMS_TO_TICKS(uart->writeTimeout);
         }
 #endif
     }

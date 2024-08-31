@@ -1,19 +1,31 @@
 /*
  * This code has been modified by Analog Devices, Inc.
+ * ANSI Mode Control processing:
+ *   https://vt100.net/docs/vt100-ug/chapter3.html
  */
 
 #include <stdio.h>
 #include <stdbool.h>
 #include <ctype.h>
+#include <string.h>
+#include <stdlib.h>
 
 #include "shell.h"
 #include "shell_platform.h"
 #include "term.h"
 
-static int term_translate( int data, void *usr )
+#define ANSI_CTRL_PARAM_SIZE      16
+#define ANSI_CTRL_MAX_PARAMS      4
+
+static int term_translate( TERM_STATE *t, int data, void *usr )
 {
   static int escape = 0;
-  static int escape_char = 0;
+
+  static char param[ANSI_CTRL_MAX_PARAMS][ANSI_CTRL_PARAM_SIZE];
+  static int param_num;
+  static int param_idx;
+
+  int i;
 
   if (escape)
   {
@@ -45,26 +57,58 @@ static int term_translate( int data, void *usr )
                   return KC_LEFT;
             }
          }
-         else if( data > '0' && data < '7' )
+         else if( data >= '0' && data <= '9' )
          {
-            escape_char = data;
+            memset(param, 0, sizeof(param));
+            param_num = 0; param_idx = 0;
+            param[param_num][param_idx++] = (char)data;
             escape = 3;
          }
          break;
       case 3:
-         escape = 0;
-         if (data == '~')
+         if( data >= '0' && data <= '9' )
          {
-            switch( escape_char )
+            if( param_idx < (ANSI_CTRL_PARAM_SIZE - 1))
             {
-               case '1':
-                  return KC_HOME;
-               case '4':
-                  return KC_END;
-               case '5':
-                  return KC_PAGEUP;
-               case '6':
-                  return KC_PAGEDOWN;
+               param[param_num][param_idx++] = (char)data;
+            }
+         } else {
+            switch( data )
+            {
+               case '~':
+                  escape = 0;
+                  for ( i = 0; i <= param_num; i++ )
+                  {
+                     data = atoi(param[i]);
+                     switch( data )
+                     {
+                        case '1':
+                           return KC_HOME;
+                        case '4':
+                           return KC_END;
+                        case '5':
+                           return KC_PAGEUP;
+                        case '6':
+                           return KC_PAGEDOWN;
+                        default:
+                           break;
+                     }
+                  }
+                  break;
+               case ';':
+                  if( param_num < ANSI_CTRL_MAX_PARAMS )
+                  {
+                     param_num++; param_idx = 0;
+                  }
+                  break;
+               case 'R':
+                  escape = 0;
+                  if( param_num >= 1 )
+                  {
+                     t->term_num_lines = atoi(param[0]);
+                     t->term_num_cols = atoi(param[1]);
+                  }
+                  break;
             }
          }
          break;

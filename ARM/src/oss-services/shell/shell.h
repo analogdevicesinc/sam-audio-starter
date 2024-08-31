@@ -55,6 +55,16 @@
 #endif
 
 /*!****************************************************************
+ * @brief  The function used to allocate memory for the shell.
+ *
+ * This defaults to the standard C library malloc if not defined
+ * otherwise.
+ ******************************************************************/
+#ifndef SHELL_REALLOC
+#define SHELL_REALLOC           realloc
+#endif
+
+/*!****************************************************************
  * @brief  The function used to free memory.
  *
  * This defaults to the standard C library free if not defined
@@ -170,6 +180,8 @@ typedef struct SHELL_CONTEXT {
     int hidden;                        /**< Hide text */
     TERM_STATE t;                      /**< Terminal state */
     void *usr;                         /**< User data pointer */
+    int interactive;                   /**< Interactive shell */
+	unsigned *uHelpIndicies;           /**< Alphabetized help indicies */
 } SHELL_CONTEXT;
 
 /*!****************************************************************

@@ -12,6 +12,14 @@
 #ifndef _fs_devio_h
 #define _fs_devio_h
 
-void fs_devio_init(void);
+#include <time.h>
+
+typedef int (*FS_DEVIO_GETTIMEOFDAY)(struct timeval *tp, void *tzvp);
+
+typedef struct FS_DEVIO_INIT {
+    FS_DEVIO_GETTIMEOFDAY getTimeOfDay;
+} FS_DEVIO_INIT;
+
+void fs_devio_init(FS_DEVIO_INIT *devioInit);
 
 #endif

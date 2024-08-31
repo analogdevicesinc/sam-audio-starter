@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -22,6 +22,8 @@ void delay(unsigned ms);
 uint32_t elapsedTimeMs(uint32_t elapsed);
 time_t util_time(time_t *tloc);
 uint32_t rtosTimeMs();
+int util_gettimeofday(struct timeval *tp, void *tzvp);
+void util_set_time_unix(struct timeval *now);
 
 /* In util.c */
 void copyAndConvert(

@@ -267,8 +267,7 @@ UART_SIMPLE_RESULT uart_setTimeouts(sUART *uartHandle,
  * in non-FreeRTOS systems.
  * *
  * @param [in] uartHandle      A handle to a UART device
- * @param [in] readTimeout     Read timeout in mS
- * @param [in] writeTimeout    Write timeout in mS
+ * @param [in] getTimeFn       Callback function to get the current time
  *
  * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
  *         an error.

@@ -48,6 +48,9 @@ typedef struct {
 #if defined(__ADSPSC589_FAMILY__)
     CLD_SC58x_USB_Port_Num port;      /*!< USB port (CLD_USB_0 or CLD_USB_1) */
 #endif
+#if defined(__ADSPSC598_FAMILY__) || defined(__ADSPSC594_FAMILY__)
+    CLD_RV (*usbPhyInit)(void);       /*!< USB PHY Init function */
+#endif
     uint8_t usbInChannels;            /*!< USB IN (Tx) channels */
     uint8_t usbInWordSizeBits;        /*!< USB IN (Tx) word size */
     uint8_t usbOutChannels;           /*!< USB OUT (Rx) channels */
@@ -77,6 +80,11 @@ CLD_RV uac2_init(void);
 CLD_RV uac2_config(UAC2_APP_CONFIG *cfg);
 CLD_RV uac2_start(void);
 CLD_RV uac2_run(void);
+
+/*
+ * This function resets uac2 stats
+ */
+CLD_RV uac2_reset_stats(UAC2_DIR dir);
 
 /* These functions allow the application to query the maximum UAC2 audio
  * packet size following a successful call to uac2_config().

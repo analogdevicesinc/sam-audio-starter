@@ -18,10 +18,10 @@
 
 void wav_audio_init(APP_CONTEXT *context);
 
-SAE_MSG_BUFFER *xferWavSinkAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferWavSinkAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
-SAE_MSG_BUFFER *xferWavSrcAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferWavSrcAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
 #endif

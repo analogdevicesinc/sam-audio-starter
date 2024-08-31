@@ -36,7 +36,6 @@ enum {
 
 static SYSTEM_AUDIO_TYPE rxBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 static SYSTEM_AUDIO_TYPE txBuffer[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE txBuffer2[SYSTEM_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 
 /* This task puts RTP frames into the RTP Rx ring buffer */
 portTASK_FUNCTION(rtpRxTask, pvParameters)
@@ -186,107 +185,101 @@ void rtp_audio_init(APP_CONTEXT *context)
 }
 
 /* Transfers RTP Tx audio (ISR context) */
-SAE_MSG_BUFFER *xferRtpTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferRtpTxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     RTP_STREAM *rtpTx = &context->rtpTx;
     PaUtilRingBuffer *rtpTxRB = context->rtpTxRB;
     CLOCK_DOMAIN myCd;
+    BaseType_t wake;
+
+    static bool first = true;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_RTP_TX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_RTP_TX);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
     if (!rtpTx->enabled) {
-        return(msg);
+        *numChannels = 0;
+        first = true;
+        return(1);
     }
 
-    samplesIn = audio->numChannels * audio->numFrames;
+    samplesIn = rtpTx->channels * SYSTEM_BLOCK_SIZE;
     samplesOut = PaUtil_GetRingBufferWriteAvailable(rtpTxRB);
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        return(msg);
+         *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn <= samplesOut) {
-        copyAndConvert(
-            audio->data, audio->wordSize, audio->numChannels,
-            txBuffer2, sizeof(SYSTEM_AUDIO_TYPE), rtpTx->channels,
-            audio->numFrames, true
-        );
-        PaUtil_WriteRingBuffer(
-            rtpTxRB, txBuffer2, rtpTx->channels * audio->numFrames
-        );
+        if (!first) {
+            PaUtil_WriteRingBuffer(
+                rtpTxRB, audio, rtpTx->channels * SYSTEM_BLOCK_SIZE
+            );
+        }
     } else {
         rtpTxOverflow++;
     }
 
+    memset(audio, 0, samplesIn * sizeof(SYSTEM_AUDIO_TYPE));
+    *numChannels = rtpTx->channels;
+    first = false;
+
     if (samplesOut < (RTP_RING_BUF_SAMPLES / 2)) {
         xTaskNotifyFromISR(context->rtpTxTaskHandle,
-            RTP_TASK_AUDIO_TX_MORE_DATA, eSetValueWithoutOverwrite, NULL
+            RTP_TASK_AUDIO_TX_MORE_DATA, eSetValueWithoutOverwrite, &wake
         );
+        portYIELD_FROM_ISR(wake);
     }
 
-    return(msg);
+    return(1);
 }
 
 /* Transfers RTP Rx audio (ISR context) */
-SAE_MSG_BUFFER *xferRtpRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferRtpRxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     RTP_STREAM *rtpRx = &context->rtpRx;
     PaUtilRingBuffer *rtpRxRB = context->rtpRxRB;
     CLOCK_DOMAIN myCd;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_RTP_RX);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_RTP_RX);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
     if (!rtpRx->enabled || rtpRx->preRoll) {
-        audio->numChannels = 0;
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     samplesIn = PaUtil_GetRingBufferReadAvailable(rtpRxRB);
     samplesOut = rtpRx->channels * SYSTEM_BLOCK_SIZE;
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        audio->numChannels = 0;
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn >= samplesOut) {
-        audio->numChannels = rtpRx->channels;
-        audio->numFrames = SYSTEM_BLOCK_SIZE;
-        audio->wordSize = sizeof(SYSTEM_AUDIO_TYPE);
         PaUtil_ReadRingBuffer(
-            rtpRxRB, audio->data, samplesOut
+            rtpRxRB, audio, samplesOut
         );
+        *numChannels = rtpRx->channels;
     } else {
-        audio->numChannels = 0;
         rtpRx->preRoll = true;
         rtpRxUnderflow++;
+        *numChannels = 0;
     }
 
-    return(msg);
+    return(1);
 }

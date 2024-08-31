@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -30,6 +30,10 @@ static uint32_t cyclesTotal = 0;
 
 static uint32_t cpuLoad = 0;
 static uint32_t maxCpuLoad = 0;
+
+volatile static uint32_t inCycles = 0;
+volatile static uint32_t outCycles = 0;
+volatile static int32_t netstedIntrCount = 0;
 
 void cpuLoadInit(CPU_LOAD_GET_TIME _getTime, uint32_t _ticksPerSecond)
 {
@@ -66,10 +70,60 @@ void cpuLoadtaskSwitchHook(void *taskHandle)
 
 void cpuLoadIsrCycles(uint32_t isrCycles)
 {
+    UBaseType_t isrStat;
+
+    /* Disable nested interrupts */
+    isrStat = taskENTER_CRITICAL_FROM_ISR();
+
     /* Only accumulate ISR cycles in the idle task */
     if (inIdleTask) {
         isrCyclesTotal += isrCycles;
     }
+
+    /* Re-enable nested interrupts */
+    taskEXIT_CRITICAL_FROM_ISR(isrStat);
+}
+
+void cpuLoadISREnter(void)
+{
+    UBaseType_t isrStat;
+
+    /* If nesting counter is 0, this is not a nested interrupt call
+    Otherwise, do not count the cycles in case of nested interrupts */
+
+    /* Disable nested interrupts */
+    isrStat = taskENTER_CRITICAL_FROM_ISR();
+
+    if (netstedIntrCount == 0) {
+        inCycles = cpuLoadGetTimeStamp();
+    }
+
+    /* Increment the counter for nested intr */
+    netstedIntrCount++;
+
+    /* Re-enable nested interrupts */
+    taskEXIT_CRITICAL_FROM_ISR(isrStat);
+}
+
+void cpuLoadISRExit(void)
+{
+    UBaseType_t isrStat;
+
+    /* If nesting counter is 1, this is not a nested interrupt call
+    Otherwise, do not count the cycles in case of nested interrupts */
+
+    /* Disable nested interrupts */
+    isrStat = taskENTER_CRITICAL_FROM_ISR();
+
+    netstedIntrCount--;
+
+    if (netstedIntrCount == 0) {
+        outCycles = cpuLoadGetTimeStamp();
+        cpuLoadIsrCycles(outCycles - inCycles);
+    }
+
+    /* Re-enable nested interrupts */
+    taskEXIT_CRITICAL_FROM_ISR(isrStat);
 }
 
 uint32_t cpuLoadCalculateLoad(uint32_t *maxLoad)

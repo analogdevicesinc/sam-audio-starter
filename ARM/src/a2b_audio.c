@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -9,64 +9,48 @@
  * software may not be used except as expressly authorized under the license.
  */
 
-#include <stdint.h>
-#include <stdbool.h>
+#include <string.h>
 
 #include "context.h"
 #include "a2b_audio.h"
 #include "cpu_load.h"
-#include "sharc_audio.h"
+#include "process_audio.h"
+#include "clock_domain.h"
+#include "route.h"
 
-#include "sae.h"
-
-void a2bAudioOut(void *buffer, uint32_t size, void *usrPtr)
+void a2bAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
-    bool clockSource;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->a2bAudioOut[0]) {
-        msg = context->a2bMsgOut[0];
-    } else if (buffer == context->a2bAudioOut[1]) {
-        msg = context->a2bMsgOut[1];
-    }
+    /* Clear the contents */
+    memset(buffer, 0, maxSize);
 
-    /* This is the CLOCK_DOMAIN_A2B "out" clock source in slave mode */
-    clockSource = (context->a2bmode == A2B_BUS_MODE_SUB);
-    sharcAudio(context, CLOCK_DOMAIN_BITM_A2B_OUT, msg, clockSource, false);
+    /* Process audio */
+    processAudio(context, CLOCK_DOMAIN_BITM_A2B_OUT, STREAM_ID_A2B_OUT,
+        context->a2bOutChannels, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, true,
+        false, false);
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 
-void a2bAudioIn(void *buffer, uint32_t size, void *usrPtr)
+void a2bAudioIn(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
-    bool clockSource;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->a2bAudioIn[0]) {
-        msg = context->a2bMsgIn[0];
-    } else if (buffer == context->a2bAudioIn[1]) {
-        msg = context->a2bMsgIn[1];
-    }
+    /* Process audio */
+    processAudio(context, CLOCK_DOMAIN_BITM_A2B_IN, STREAM_ID_A2B_IN,
+        context->a2bInChannels, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, false,
+        false, true);
 
-    /* This is the CLOCK_DOMAIN_A2B "in" clock source in slave mode */
-    clockSource = (context->a2bmode == A2B_BUS_MODE_SUB);
-    sharcAudio(context, CLOCK_DOMAIN_BITM_A2B_IN, msg, clockSource, true);
-
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }

@@ -48,7 +48,7 @@ SHARC1_OPTIMIZE ?= $(SHARC_OPTIMIZE)
 # All of the ARM sources participating in the build are defined here
 SRC_PREFIX = ..
 ARM_SRC_DIRS += \
-	ALL \
+	ALL/src \
 	ALL/src/sae \
 	ARM \
 	ARM/src \
@@ -60,17 +60,22 @@ ARM_SRC_DIRS += \
 	ARM/src/simple-services/a2b-xml \
 	ARM/src/simple-services/adi-a2b-cmdlist \
 	ARM/src/simple-services/FreeRTOS-cpu-load \
+	ARM/src/simple-services/a2b-to-sport-cfg \
 	ARM/src/adi-drivers/ethernet/common \
 	ARM/src/adi-drivers/ethernet/gemac \
 	ARM/src/simple-services/adi-osal-minimal \
-	ARM/src/simple-services/uac2-soundcard \
+	ARM/src/simple-services/uac2-cdc-soundcard \
 	ARM/src/simple-services/fs-dev \
+	ARM/src/simple-services/rtp-stream \
+	ARM/src/simple-services/vban-stream \
+	ARM/src/simple-services/wav-file \
+	ARM/src/simple-services/telnet \
 	ARM/src/oss-services/lwip/core \
 	ARM/src/oss-services/lwip/core/ipv4 \
 	ARM/src/oss-services/lwip/netif \
-	ARM/src/oss-services/lwip/arch \
 	ARM/src/oss-services/lwip/api \
-	ARM/src/simple-services/a2b-to-sport-cfg \
+	ARM/src/oss-services/lwip/arch \
+	ARM/src/oss-services/lwip/apps/mdns \
 	ARM/src/oss-services/umm_malloc \
 	ARM/src/oss-services/shell \
 	ARM/src/oss-services/crc \
@@ -78,21 +83,22 @@ ARM_SRC_DIRS += \
 	ARM/src/oss-services/yxml \
 	ARM/src/oss-services/pa-ringbuffer \
 	ARM/src/oss-services/spiffs \
+	ARM/src/oss-services/libtelnet \
+	ARM/src/oss-services/kilo \
+	ARM/src/oss-services/getline \
+	ARM/src/oss-services/printf \
+	ARM/src/oss-services/c-timestamp \
+	ARM/src/oss-services/FatFs \
 	ARM/src/oss-services/FreeRTOS-ARM \
 	ARM/src/oss-services/FreeRTOS-ARM/portable/MemMang \
 	ARM/src/oss-services/FreeRTOS-ARM/portable/CCES/ARM_CA5 \
-	ARM/src/oss-services/FreeRTOS-ARM/portable/GCC/ARM_CA9 \
-	ARM/src/oss-services/FatFs \
-	ARM/src/oss-services/libtelnet \
-	ARM/src/oss-services/kilo \
-	ARM/src/oss-services/getline
+	ARM/src/oss-services/FreeRTOS-ARM/portable/GCC/ARM_CA9
 
 ARM_DST := ARM
 ARM_DST_DIRS := $(addprefix $(ARM_DST)/,$(ARM_SRC_DIRS))
 
 # Include directories (SRC directories are automatically added)
 ARM_INCLUDE_DIRS += \
-	-I. \
 	-I"../ALL/include" \
 	-I"../ARM/include" \
 	-I"../ARM/src/adi-drivers/ethernet/include" \
@@ -117,16 +123,22 @@ ARM_STATIC_LIBS = ../ARM/lib/cld_sc58x_audio_2_0_w_cdc_lib_Core0.a
 # Setup dependencies
 ARM_DEPS = $(foreach depdir, $(ARM_DST_DIRS), $(wildcard $(depdir)/*.d))
 
-# define the compiler/assembler flags ARM_OPTIMIZE is meant to be passed in
-# on the command-line (i.e. make ARM_OPTIMIZE=-O1)
+#
+# Define the compiler/assembler flags
+#
+# __ADI_FREERTOS : Define only when using the ADI OSAL
+# SHARC_AUDIO_ENABLE : Define to enable SHARC core audio processing
+#
 ARM_CFLAGS = $(GENERAL_FLAGS)
 ARM_CFLAGS += $(ARM_OPTIMIZE) $(BUILD_RELEASE) $(BUILD_RTOS) $(ARM_INCLUDE_DIRS)
 ARM_CFLAGS += -Wall -Wno-unused-but-set-variable -Wno-unused-function
 ARM_CFLAGS += -mcpu=cortex-a5 -gdwarf-2 -ffunction-sections -fdata-sections
 ARM_CFLAGS += -mproc=$(PROC) -msi-revision=$(SI_REVISION) -DCORE0
-ARM_CFLAGS += -DSAE_IPC -DFREE_RTOS -D__SAM_V1__ -DUSB_CDC_STDIO
-# Uncomment for red boards (Warning: Ethernet broken)
-#ARM_CFLAGS += -DRED_BOARD
+ARM_CFLAGS += -DSAE_IPC -DFREE_RTOS -D__SAM_V1__
+#ARM_CFLAGS += -D__ADI_FREERTOS
+ARM_CFLAGS += -DFEATURE_CPU_LOAD
+ARM_CFLAGS += -DUSB_CDC_STDIO
+ARM_CFLAGS += -DSHARC_AUDIO_ENABLE
 
 ARM_AFLAGS = -x assembler-with-cpp -mproc=$(PROC) -msi-revision=$(SI_REVISION) -gdwarf-2 -DCORE0
 
@@ -228,7 +240,7 @@ $(SHARC0_OBJS): | $(SHARC0_DST_DIRS)
 # SHARC1 section
 ################################################################################
 
-# All of the SHARC0 sources participating in the build are defined here
+# All of the SHARC1 sources participating in the build are defined here
 SHARC1_SRC_DIRS += \
 	ALL \
 	ALL/src/sae \
@@ -239,10 +251,10 @@ SHARC1_SRC_DIRS += \
 SHARC1_DST := SHARC1
 SHARC1_DST_DIRS = $(addprefix $(SHARC1_DST)/,$(SHARC1_SRC_DIRS))
 
-# Include directories
+# Include directories (SRC dirs are automatically added)
 SHARC1_INCLUDE_DIRS += \
-	-I../ALL/include \
-	-I../SHARC1/include
+	-I"../ALL/include" \
+	-I"../SHARC1/include"
 
 SHARC1_INCLUDE_DIRS += $(addprefix -I$(SRC_PREFIX)/, $(SHARC1_SRC_DIRS))
 
@@ -299,14 +311,14 @@ $(SHARC1_OBJS): | $(SHARC1_DST_DIRS)
 all: $(LDR)
 
 $(LDR):  $(ARM_EXE) $(SHARC0_EXE) $(SHARC1_EXE)
-	$(LD) -proc $(PROC) -core0=$(ARM_EXE) -init ezkitSC589_initcode_core0_v10 -core1=$(SHARC0_EXE) -core2=$(SHARC1_EXE) -NoFinalTag=$(ARM_EXE) -NoFinalTag=$(SHARC0_EXE) -b SPI -f BINARY -Width 8 -bcode 0x0C -o $@
+	$(LD) -proc $(PROC) -core0=$(ARM_EXE) -init ezkitSC589_initcode_core0_v10 -core1=$(SHARC0_EXE) -core2=$(SHARC1_EXE) -NoFinalTag=$(ARM_EXE) -NoFinalTag=$(SHARC0_EXE) -b SPI -f BINARY -Width 8 -bcode 0x0C -verbose -o $@ > ld.log 2>&1
 
 $(ARM_DST_DIRS) $(SHARC0_DST_DIRS) $(SHARC1_DST_DIRS):
 	mkdir -p $@
 
 # Other Targets
 clean:
-	$(RM) -f *.xml $(PROJECT).* ../*.xml *.map
+	$(RM) -f *.xml $(PROJECT).* ../*.xml *.map *.log
 	$(RM) -rf $(ARM_EXE) $(ARM_DST)
 	$(RM) -rf $(SHARC0_EXE) $(SHARC0_DST)
 	$(RM) -rf $(SHARC1_EXE) $(SHARC1_DST)

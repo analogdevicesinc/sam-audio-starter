@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2022 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -9,61 +9,48 @@
  * software may not be used except as expressly authorized under the license.
  */
 
-#include <stdint.h>
-#include <stdbool.h>
+#include <string.h>
 
 #include "context.h"
 #include "codec_audio.h"
 #include "cpu_load.h"
+#include "process_audio.h"
 #include "clock_domain.h"
-#include "sharc_audio.h"
-
-#include "sae.h"
+#include "route.h"
 
 void codecAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->codecAudioOut[0]) {
-        msg = context->codecMsgOut[0];
-    } else if (buffer == context->codecAudioOut[1]) {
-        msg = context->codecMsgOut[1];
-    }
+    /* Clear the contents */
+    memset(buffer, 0, maxSize);
 
     /* This is the CLOCK_DOMAIN_SYSTEM "out" clock source */
-    sharcAudio(context, CLOCK_DOMAIN_BITM_CODEC_OUT, msg, true, false);
+    processAudio(context, CLOCK_DOMAIN_BITM_CODEC_OUT, STREAM_ID_CODEC_OUT,
+        CODEC_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, true,
+        true, false);
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }
 
 void codecAudioIn(void *buffer, uint32_t size, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
-    SAE_MSG_BUFFER *msg = NULL;
-    uint32_t inCycles, outCycles;
 
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
-
-    /* Get the IPC message associated with the data pointer */
-    if (buffer == context->codecAudioIn[0]) {
-        msg = context->codecMsgIn[0];
-    } else if (buffer == context->codecAudioIn[1]) {
-        msg = context->codecMsgIn[1];
-    }
+    /* Track ISR CPU load */
+    cpuLoadISREnter();
 
     /* This is the CLOCK_DOMAIN_SYSTEM "in" clock source */
-    sharcAudio(context, CLOCK_DOMAIN_BITM_CODEC_IN, msg, true, true);
+    processAudio(context, CLOCK_DOMAIN_BITM_CODEC_IN, STREAM_ID_CODEC_IN,
+        CODEC_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
+        buffer, false,
+        true, true);
 
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    /* Track ISR CPU load */
+    cpuLoadISRExit();
 }

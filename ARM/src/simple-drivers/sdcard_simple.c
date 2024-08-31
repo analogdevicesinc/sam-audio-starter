@@ -27,9 +27,16 @@
 
 #if defined(__ADSPSC598_FAMILY__)
 #include "adi_emsi.h"
+void invalidate_l1_l2_buffer(void *_start, void *_end);
+#define SD_CARD_INVALIDATE(start,end) \
+    invalidate_l1_l2_buffer( \
+        (void *)((uintptr_t)start & ~(ADI_CACHE_LINE_LENGTH-1)), \
+        (void *)((uintptr_t)(end + ADI_CACHE_LINE_LENGTH) & ~(ADI_CACHE_LINE_LENGTH-1)) \
+    )
 #define ADI_EMSI
 #else
 #include <drivers/rsi/adi_rsi.h>
+#define SD_CARD_INVALIDATE(start,end)
 #define ADI_RSI
 #endif
 
@@ -53,14 +60,15 @@
 #endif
 
 #define NO_RESPONSE    0x00
-#define R1_RESPONSE    0x40
-#define R1B_RESPONSE   0x40
-#define R2_RESPONSE    0xC0
-#define R3_RESPONSE    0x40
-#define R6_RESPONSE    0x40
-#define R7_RESPONSE    0x40
+#define R1_RESPONSE    0x00
+#define R1B_RESPONSE   0x00
+#define R2_RESPONSE    0x00
+#define R3_RESPONSE    0x00
+#define R6_RESPONSE    0x00
+#define R7_RESPONSE    0x00
 
 #define SD_MMC_CMD0    0
+#define SD_MMC_CMD1    1
 #define SD_MMC_CMD2    2
 #define SD_MMC_CMD3    3
 #define SD_MMC_CMD6    6
@@ -80,11 +88,13 @@
 #define SD_ACMD51      51
 
 #define SD_MMC_CMD_GO_IDLE_STATE        (SD_MMC_CMD0 | NO_RESPONSE)
+#define MMC_CMD_GET_OCR_VALUE           (SD_MMC_CMD1 | R3_RESPONSE)
 #define SD_MMC_CMD_ALL_SEND_CID         (SD_MMC_CMD2 | R2_RESPONSE)
 #define SD_CMD_SEND_RELATIVE_ADDR       (SD_MMC_CMD3 | R6_RESPONSE)
 #define SD_CMD_SWITCH_FUNCTION          (SD_MMC_CMD6 | R1_RESPONSE)
 #define SD_MMC_CMD_SELECT_DESELECT_CARD (SD_MMC_CMD7 | R1B_RESPONSE)
 #define SD_CMD_SEND_IF_COND             (SD_MMC_CMD8 | R7_RESPONSE)
+#define MMC_CMD_SEND_EXT_CSD            (SD_MMC_CMD8 | R1_RESPONSE)
 #define SD_MMC_CMD_SEND_CSD             (SD_MMC_CMD9 | R2_RESPONSE)
 #define SD_MMC_CMD_STOP_TRANSMISSION    (SD_MMC_CMD12 | R1B_RESPONSE)
 #define SD_MMC_CMD_READ_BLOCK           (SD_MMC_CMD17 | R1_RESPONSE)
@@ -99,15 +109,26 @@
 #define SD_CMD_SEND_SCR                 (SD_ACMD51 | R1_RESPONSE)
 
 /****************************************************
- *  SD OCR Register Bit Masks                       *
+ *  SD/eMMC OCR Register Bit Masks
  ****************************************************/
 #define SD_OCR_CARD_CAPACITY_STATUS (1<<30)
 #define SD_OCR_CARD_POWER_UP_STATUS (1<<31)
 
+/****************************************************
+ *  SD/eMMC Status Bit Masks
+ ****************************************************/
 #define CARD_STATUS_READY_FOR_DATA  (1 << 8)
 
+/****************************************************
+ *  SD CMD6 Bit Masks
+ ****************************************************/
 #define CMD6_FUNC_GRP_1_OFFSET      (16)
 #define CMD6_HIGH_SPEED_SET_OK      (0x01)
+
+/****************************************************
+ *  eMMC RCA
+ ****************************************************/
+#define EMMC_RCA                    (1)
 
 typedef enum _SDCARD_CSD_STRUCTURE {
     SDCARD_CSD_STRUCTURE_VERSION_1_0          = 0,
@@ -185,6 +206,7 @@ struct sSDCARD {
 #endif
 
     SDCARD_SIMPLE_TYPE type;
+    SDCARD_SIMPLE_CARD card;
     uint32_t rca;
     uint64_t capacity;
     uint32_t speed;
@@ -194,6 +216,7 @@ struct sSDCARD {
 
 
 /* SDCARD port context containers */
+__attribute__ ((aligned (ADI_CACHE_LINE_LENGTH)))
 static sSDCARD sdcardContext[SDCARD_END];
 
 static void sdcard_event(void *usr, uint32_t event, void *arg)
@@ -350,25 +373,29 @@ SDCARD_SIMPLE_RESULT sdcard_present(sSDCARD *sdcard)
     xsiResult = adi_rsi_IsCardPresent(sdcard->xsiHandle);
 #else
 #ifdef SDCARD_POLL_CARD_DETECT
-    if (sdcard->started) {
-        sdcard_SendCommand(sdcard,
-            SD_CMD_GET_MEMORY_STATUS, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-        );
+    if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+        if (sdcard->started) {
+            xsiResult = sdcard_SendCommand(sdcard,
+                SD_CMD_GET_MEMORY_STATUS, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+            );
+            if ((xsiResult == ADI_EMSI_TIMED_OUT) || (sdcard->cmdTimeout)) {
+                xsiResult = ADI_xSI_FAILURE;
+            }
+        } else {
+            sdcard_SendCommand(sdcard,
+                SD_MMC_CMD_GO_IDLE_STATE, 0, RESPONSE_NONE, TRANS_NONE, 0
+            );
+            sdcard->cmdTimeout = false;
+            sdcard_SendCommand(sdcard,
+                SD_CMD_SEND_IF_COND, 0x000001AA, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+            );
+            sdcard_block(sdcard, 100);
+        }
         if (sdcard->cmdTimeout) {
             xsiResult = ADI_xSI_FAILURE;
         }
     } else {
-        sdcard_SendCommand(sdcard,
-            SD_MMC_CMD_GO_IDLE_STATE, 0, RESPONSE_NONE, TRANS_NONE, 0
-        );
-        sdcard->cmdTimeout = false;
-        sdcard_SendCommand(sdcard,
-            SD_CMD_SEND_IF_COND, 0x000001AA, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-        );
-        sdcard_block(sdcard, 100);
-    }
-    if (sdcard->cmdTimeout) {
-        xsiResult = ADI_xSI_FAILURE;
+        xsiResult = sdcard->cardPresent;
     }
 #else
     xsiResult = sdcard->cardPresent;
@@ -471,6 +498,9 @@ sdcard_submitDataTransfer(sSDCARD *sdcard,
         cmd, sector, RESPONSE_SHORT, transfer, CRCDIS
     );
     xsiResult = sdcard_block(sdcard, 1000);
+    if (read && (xsiResult == ADI_xSI_SUCCESS)) {
+        SD_CARD_INVALIDATE(data, (uintptr_t)data + 512 * count);
+    }
 #endif
 
 abort:
@@ -532,7 +562,7 @@ SDCARD_SIMPLE_RESULT sdcard_write(sSDCARD *sdcard, void *data, uint32_t sector, 
     }
 
     /* Must send unaligned data through an aligned DMA buffer */
-    if ((uintptr_t)data & 0x3) {
+    if ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) {
         result = sdcard_writeUnaligned(sdcard, data, sector, count);
         return(result);
     }
@@ -627,7 +657,7 @@ SDCARD_SIMPLE_RESULT sdcard_read(sSDCARD *sdcard, void *data, uint32_t sector, u
     }
 
     /* Must send unaligned data through an aligned buffer */
-    if ((uintptr_t)data & 0x3) {
+    if ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) {
         result = sdcard_readUnaligned(sdcard, data, sector, count);
         return(result);
     }
@@ -722,15 +752,21 @@ static SDCARD_SIMPLE_TYPE sdcard_IdentifyV2(sSDCARD *sdcard, uint32_t response)
     if ((response & 0x000001FF) == 0x000001AA) {
         /* TODO: 1 second timeout */
         do {
-            result = sdcard_SendCommand(sdcard,
-                SD_MMC_CMD_APP_CMD, 0, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-            );
-            result = sdcard_GetResponse(sdcard, &response, RESPONSE_SHORT);
-            result = sdcard_SendCommand(sdcard,
-                SD_CMD_GET_OCR_VALUE, 0x40FF8000, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-            );
-            result = sdcard_GetResponse(sdcard, &ocr, RESPONSE_SHORT);
-
+            if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+                result = sdcard_SendCommand(sdcard,
+                    SD_MMC_CMD_APP_CMD, 0, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+                );
+                result = sdcard_GetResponse(sdcard, &response, RESPONSE_SHORT);
+                result = sdcard_SendCommand(sdcard,
+                    SD_CMD_GET_OCR_VALUE, 0x40FF8000, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+                );
+                result = sdcard_GetResponse(sdcard, &ocr, RESPONSE_SHORT);
+            } else {
+                result = sdcard_SendCommand(sdcard,
+                    MMC_CMD_GET_OCR_VALUE, 0x40FF8000, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+                );
+                result = sdcard_GetResponse(sdcard, &ocr, RESPONSE_SHORT);
+            }
         } while ((ocr & SD_OCR_CARD_POWER_UP_STATUS) == 0);
 
         if (ocr & SD_OCR_CARD_CAPACITY_STATUS) {
@@ -748,12 +784,12 @@ static SDCARD_SIMPLE_RESULT sdcard_Start(sSDCARD *sdcard)
     SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
     ADI_xSI_HANDLE xsiHandle = sdcard->xsiHandle;
     ADI_xSI_RESULT xsiResult = ADI_xSI_SUCCESS;
+    uint8_t *extCSD = sdcard->alignedData;
     uint32_t cardResp = 0;
     uint8_t cmd6Resp[64] = { 0 };
     uint8_t scr[8] = { 0 };
     uint32_t cid[4] = { 0 };
     uint32_t csd[4] = { 0 };
-    uint32_t rca = 0;
 
     /* Reset card info */
     sdcard->type = SDCARD_UNUSABLE_CARD;
@@ -767,14 +803,18 @@ static SDCARD_SIMPLE_RESULT sdcard_Start(sSDCARD *sdcard)
         SD_MMC_CMD_GO_IDLE_STATE, 0, RESPONSE_NONE, TRANS_NONE, 0
     );
 
-    /* Check SDv2 voltage range */
-    xsiResult = sdcard_SendCommand(sdcard,
-        SD_CMD_SEND_IF_COND, 0x000001AA, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-    );
-    if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+    /* Check SDv2/eMMC voltage range */
+    if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+        xsiResult = sdcard_SendCommand(sdcard,
+            SD_CMD_SEND_IF_COND, 0x000001AA, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        xsiResult = sdcard_GetResponse(sdcard, &cardResp, RESPONSE_SHORT);
+    } else {
+        cardResp = 0x000001AA;
+    }
 
     /* SDv2 card */
-    xsiResult = sdcard_GetResponse(sdcard, &cardResp, RESPONSE_SHORT);
     sdcard->type = sdcard_IdentifyV2(sdcard, cardResp);
     if (sdcard->type == SDCARD_UNUSABLE_CARD) {
         xsiResult = ADI_xSI_FAILURE;
@@ -788,18 +828,25 @@ static SDCARD_SIMPLE_RESULT sdcard_Start(sSDCARD *sdcard)
     if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
     xsiResult = sdcard_GetResponse(sdcard, cid, RESPONSE_LONG);
 
-    /* Get RCA */
-    xsiResult = sdcard_SendCommand(sdcard,
-        SD_CMD_SEND_RELATIVE_ADDR, 0, RESPONSE_SHORT, TRANS_NONE, 0
-    );
-    if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-    xsiResult = sdcard_GetResponse(sdcard, &rca, RESPONSE_SHORT);
-    rca &= 0xFFFF0000;
-    sdcard->rca = rca;
+    /* Get SD RCA / Set MMC RCA */
+    if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+        xsiResult = sdcard_SendCommand(sdcard,
+            SD_CMD_SEND_RELATIVE_ADDR, 0, RESPONSE_SHORT, TRANS_NONE, 0
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        xsiResult = sdcard_GetResponse(sdcard, &sdcard->rca, RESPONSE_SHORT);
+        sdcard->rca &= 0xFFFF0000;
+    } else {
+        sdcard->rca = EMMC_RCA << 16;
+        xsiResult = sdcard_SendCommand(sdcard,
+            SD_CMD_SEND_RELATIVE_ADDR, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, 0
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+    }
 
     /* Get CSD */
     xsiResult = sdcard_SendCommand(sdcard,
-        SD_MMC_CMD_SEND_CSD, rca, RESPONSE_LONG, TRANS_NONE, CRCDIS
+        SD_MMC_CMD_SEND_CSD, sdcard->rca, RESPONSE_LONG, TRANS_NONE, CRCDIS
     );
     if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
     xsiResult = sdcard_GetResponse(sdcard, csd, RESPONSE_LONG);
@@ -811,83 +858,122 @@ static SDCARD_SIMPLE_RESULT sdcard_Start(sSDCARD *sdcard)
     mul = SDCARD_TRANSFER_MULTIPLIER[(tran_speed >> 3) & 0xF];
     maxClock = unit * mul * 1000;
 
-    /* Calculate the size */
-    sdcard->csdStruct = (csd[0] & 0xC0000000) >> 30;
-    if (sdcard->csdStruct == SDCARD_CSD_STRUCTURE_VERSION_1_0) {
-        uint32_t read_bl_len = (csd[1] & 0x000F0000) >> 16;
-        uint32_t c_size = ((csd[1] & 0x000003FF) << 2) | ((csd[2] & 0xC0000000) >> 30);
-        uint32_t c_size_mult = (csd[2] & 0x00038000) >> 15;
-        uint64_t mult = c_size_mult << 8;
-        uint64_t block_nr = (c_size + 1) * mult;
-        uint64_t block_len = read_bl_len << 12;
-        sdcard->capacity = mult * block_nr * block_len;
-    } else if (sdcard->csdStruct == SDCARD_CSD_STRUCTURE_VERSION_2_0) {
-        uint64_t c_size;
-        c_size = ((csd[1] & 0x0000003F) << 16) | ((csd[2] & 0xFFFF0000) >> 16);
-        sdcard->capacity = (c_size + 1) * 512 * 1024;
-    } else {
-        sdcard->type = SDCARD_UNUSABLE_CARD;
-        goto abort;
-    }
+    /* Configure the card interface */
+    if (sdcard->card == SDCARD_CARD_TYPE_SD) {
 
-    /* Select the card */
-    xsiResult = sdcard_SendCommand(sdcard,
-        SD_MMC_CMD_SELECT_DESELECT_CARD, rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-    );
-    if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        /* Select the card */
+        xsiResult = sdcard_SendCommand(sdcard,
+            SD_MMC_CMD_SELECT_DESELECT_CARD, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
 
-   /* Get SCR register */
-    xsiResult = sdcard_SendCommand(sdcard,
-        SD_MMC_CMD_APP_CMD, rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-    );
-    if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-    xsiResult = sdcard_submitDataTransfer(sdcard,
-        SD_CMD_SEND_SCR, true, scr, 0x00000000, 1, 8, false
-    );
-    if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        /* Get SCR register */
+        xsiResult = sdcard_SendCommand(sdcard,
+            SD_MMC_CMD_APP_CMD, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        xsiResult = sdcard_submitDataTransfer(sdcard,
+            SD_CMD_SEND_SCR, true, scr, 0x00000000, 1, 8, false
+        );
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
 
-    /* Increase speed (CMD6 valid for all v1.10+ cards) */
-    if (SDCLK_MAX > maxClock) {
-        /* Confirm card spec >= 1.10 */
-        if ((scr[0] & 0x0F) >= 1) {
-            /* Set high-speed mode in function group 1 */
-            xsiResult = sdcard_submitDataTransfer(sdcard,
-                SD_CMD_SWITCH_FUNCTION, true, cmd6Resp, 0x80fffff1, 1, 64, true);
-            if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-            /* Confirm function executed */
-            if (cmd6Resp[CMD6_FUNC_GRP_1_OFFSET] & CMD6_HIGH_SPEED_SET_OK) {
-                maxClock = 50000000;
+        /* Increase speed (CMD6 valid for all v1.10+ cards) */
+        if (SDCLK_MAX > maxClock) {
+            /* Confirm card spec >= 1.10 */
+            if ((scr[0] & 0x0F) >= 1) {
+                /* Set high-speed mode in function group 1 */
+                xsiResult = sdcard_submitDataTransfer(sdcard,
+                    SD_CMD_SWITCH_FUNCTION, true, cmd6Resp, 0x80fffff1, 1, 64, true);
+                if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+                /* Confirm function executed */
+                if (cmd6Resp[CMD6_FUNC_GRP_1_OFFSET] & CMD6_HIGH_SPEED_SET_OK) {
+                    maxClock = 50000000;
+                }
             }
         }
-    }
-    maxClock = (maxClock > SDCLK_MAX) ? SDCLK_MAX : maxClock;
-    sdcard_SetSpeed(sdcard, SDCLK, maxClock);
-    sdcard->speed = maxClock;
+        maxClock = (maxClock > SDCLK_MAX) ? SDCLK_MAX : maxClock;
+        sdcard_SetSpeed(sdcard, SDCLK, maxClock);
 
-    /* Set 4-bit bus width */
-    if (scr[1] & 0x04) {
-        xsiResult = sdcard_SendCommand(sdcard,
-            SD_MMC_CMD_APP_CMD, rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-        );
-        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-        xsiResult = sdcard_SendCommand(sdcard,
-            SD_CMD_DISCONNECT_DAT3_PULLUP, 0, RESPONSE_SHORT, TRANS_NONE, 0
-        );
-        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-        xsiResult = sdcard_SendCommand(sdcard,
-            SD_MMC_CMD_APP_CMD, rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-        );
-        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
-        xsiResult = sdcard_SendCommand(sdcard,
-            SD_CMD_SET_BUS_WIDTH, 2, RESPONSE_SHORT, TRANS_NONE, CRCDIS
-        );
-        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        /* Set 4-bit bus width */
+        if (scr[1] & 0x04) {
+            xsiResult = sdcard_SendCommand(sdcard,
+                SD_MMC_CMD_APP_CMD, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+            );
+            if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+            xsiResult = sdcard_SendCommand(sdcard,
+                SD_CMD_DISCONNECT_DAT3_PULLUP, 0, RESPONSE_SHORT, TRANS_NONE, 0
+            );
+            if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+            xsiResult = sdcard_SendCommand(sdcard,
+                SD_MMC_CMD_APP_CMD, sdcard->rca, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+            );
+            if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+            xsiResult = sdcard_SendCommand(sdcard,
+                SD_CMD_SET_BUS_WIDTH, 2, RESPONSE_SHORT, TRANS_NONE, CRCDIS
+            );
+            if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
 #ifdef ADI_RSI
-        adi_rsi_SetBusWidth(xsiHandle, 4);
+            adi_rsi_SetBusWidth(xsiHandle, 4);
 #else
-        adi_emsi_SetBusWidth(xsiHandle, ADI_EMSI_BUS_WIDTH_4BIT);
+            adi_emsi_SetBusWidth(xsiHandle, ADI_EMSI_BUS_WIDTH_4BIT);
+#endif
+        }
+    } else {
+#ifdef ADI_RSI
+        xsiResult = ADI_RSI_FAILURE; goto abort;
+#else
+        xsiResult = adi_emsi_SetAppUse(sdcard->xsiHandle,
+            ADI_EMSI_APP_USE_NORMAL_DATATRANSFER, false);
+        xsiResult = adi_emsi_SetRca(sdcard->xsiHandle, sdcard->rca >> 16);
+        xsiResult = adi_emsi_SelectCard(sdcard->xsiHandle, 1);
+        xsiResult = adi_emsi_SetSpeedMode(sdcard->xsiHandle,
+            ADI_EMSI_SPEED_MODE_LEGACY_OR_DSSDR);
+        maxClock = (maxClock > EMMCCLK_MAX) ? EMMCCLK_MAX : maxClock;
+        sdcard_SetSpeed(sdcard, SDCLK, maxClock);
+        xsiResult = adi_emsi_SetBusWidth(sdcard->xsiHandle,
+            ADI_EMSI_BUS_WIDTH_4BIT);
+        xsiResult = adi_emsi_SetBlkSze(sdcard->xsiHandle, 512);
 #endif
     }
+
+    /* Calculate the size */
+    if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+        sdcard->csdStruct = (csd[0] & 0xC0000000) >> 30;
+        if (sdcard->csdStruct == SDCARD_CSD_STRUCTURE_VERSION_1_0) {
+            uint32_t read_bl_len = (csd[1] & 0x000F0000) >> 16;
+            uint32_t c_size = ((csd[1] & 0x000003FF) << 2) | ((csd[2] & 0xC0000000) >> 30);
+            uint32_t c_size_mult = (csd[2] & 0x00038000) >> 15;
+            uint64_t mult, block_nr, block_len;
+            if (sdcard->card == SDCARD_CARD_TYPE_SD) {
+                mult = c_size_mult << 8;
+                block_nr = (c_size + 1) * mult;
+                block_len = read_bl_len << 12;
+                sdcard->capacity = mult * block_nr * block_len;
+            } else {
+                mult = (1 << (c_size_mult + 2));
+                block_nr = (c_size + 1) * mult;
+                block_len = (1 << read_bl_len);
+                sdcard->capacity = block_nr * block_len;
+            }
+        } else if (sdcard->csdStruct == SDCARD_CSD_STRUCTURE_VERSION_2_0) {
+            uint64_t c_size;
+            c_size = ((csd[1] & 0x0000003F) << 16) | ((csd[2] & 0xFFFF0000) >> 16);
+            sdcard->capacity = (c_size + 1) * 512 * 1024;
+        } else {
+            sdcard->type = SDCARD_UNUSABLE_CARD;
+            goto abort;
+        }
+    } else {
+        uint32_t *sector_count;
+        xsiResult = sdcard_submitDataTransfer(
+            sdcard, MMC_CMD_SEND_EXT_CSD, true, extCSD, 0, 1, 512, true);
+        if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
+        sector_count = (uint32_t *)&extCSD[212];
+        sdcard->capacity = (uint64_t)(*sector_count) * 512;
+    }
+
+    /* Save the max speed */
+    sdcard->speed = maxClock;
 
 abort:
     if ((xsiResult != ADI_xSI_SUCCESS) ||
@@ -951,6 +1037,7 @@ SDCARD_SIMPLE_RESULT sdcard_info(sSDCARD *sdcard, SDCARD_SIMPLE_INFO *info)
 
     SDCARD_LOCK();
     if (info) {
+        info->card = sdcard->card;
         info->type = sdcard->type;
         info->capacity = sdcard->capacity;
         info->speed = sdcard->speed;
@@ -1021,7 +1108,8 @@ SDCARD_SIMPLE_RESULT sdcard_deinit(void)
 /***********************************************************************
  * Open/Close Functions
  ***********************************************************************/
-SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port, sSDCARD **sdcardHandle)
+SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port,
+    SDCARD_SIMPLE_CARD card, sSDCARD **sdcardHandle)
 {
     SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
     ADI_xSI_RESULT xsiResult;
@@ -1040,15 +1128,22 @@ SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port, sSDCARD **sdcardHandle
     }
 
     if (result == SDCARD_SIMPLE_SUCCESS) {
-
+        sdcard->card = card;
 #ifdef ADI_RSI
-        xsiResult = adi_rsi_Open(port, &sdcard->xsiHandle);
-        if (xsiResult != ADI_xSI_SUCCESS) {
+        if (card == SDCARD_CARD_TYPE_EMMC) {
             result = SDCARD_SIMPLE_ERROR;
+        }
+        if (result == SDCARD_SIMPLE_SUCCESS) {
+            xsiResult = adi_rsi_Open(port, &sdcard->xsiHandle);
+            if (xsiResult != ADI_xSI_SUCCESS) {
+                result = SDCARD_SIMPLE_ERROR;
+            }
         }
 #else
         xsiResult = adi_emsi_Open(
-            port, ADI_EMSI_CARD_TYPE_SDCARD,
+            port,
+            sdcard->card == SDCARD_CARD_TYPE_EMMC ?
+                ADI_EMSI_CARD_TYPE_EMMC : ADI_EMSI_CARD_TYPE_SDCARD,
             sdcard->emsiMemory, sizeof(sdcard->emsiMemory),
             &sdcard->xsiHandle
         );
@@ -1073,11 +1168,16 @@ SDCARD_SIMPLE_RESULT sdcard_open(SDCARD_SIMPLE_PORT port, sSDCARD **sdcardHandle
                 sdcard->xsiHandle, ADI_EMSI_APP_USE_BOOTING_OPERATION, false);
             adi_emsi_SetSpeedMode(
                 sdcard->xsiHandle, ADI_EMSI_SPEED_MODE_LEGACY_OR_DSSDR);
-            xsiResult = adi_emsi_SetCardConnector(sdcard->xsiHandle, true);
-            sdcard->cardPresent = (xsiResult == ADI_EMSI_CARD_INSERTED) ?
-                ADI_xSI_SUCCESS : ADI_xSI_FAILURE;
+            xsiResult = adi_emsi_SetCardConnector(sdcard->xsiHandle,
+                sdcard->card == SDCARD_CARD_TYPE_SD ? true : false);
+            if ( (xsiResult == ADI_EMSI_CARD_INSERTED) ||
+                 (xsiResult == ADI_EMSI_SUCCESS) ) {
+                sdcard->cardPresent = ADI_xSI_SUCCESS;
+            } else {
+                sdcard->cardPresent = ADI_xSI_FAILURE;
+            }
             adi_emsi_SetTuning(sdcard->xsiHandle, true);
-            adi_emsi_SetDmaType(sdcard->xsiHandle, ADI_EMSI_DMA_USED_ADMA2 , 0);
+            adi_emsi_SetDmaType(sdcard->xsiHandle, ADI_EMSI_DMA_USED_ADMA2, 0);
             adi_emsi_SetBlkSze(sdcard->xsiHandle, 512);
             sdcard_SetIdentifyMode(sdcard);
 #endif

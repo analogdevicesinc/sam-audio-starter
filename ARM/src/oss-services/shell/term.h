@@ -6,18 +6,24 @@
 // ****************************************************************************
 // Data types
 
+typedef struct TERM_STATE TERM_STATE;
+
 // Terminal output function
 typedef void ( *p_term_out )( char, void * );
 // Terminal input function
 typedef int ( *p_term_in )( int, void * );
 // Terminal translate input function
-typedef int ( *p_term_translate )( int, void * );
+typedef int ( *p_term_translate )( TERM_STATE *, int, void * );
 
 // Terminal input mode (parameter of p_term_in and term_getch())
 #define TERM_INPUT_DONT_WAIT      0
 #define TERM_INPUT_WAIT           1
 
-typedef struct TERM_STATE {
+// Terminal mode flags
+#define TERM_MODE_NONE           0
+#define TERM_MODE_COOKED         1
+
+struct TERM_STATE {
     p_term_out term_out;             /**< Terminal output function pointer */
     p_term_in term_in;               /**< Terminal input function pointer */
     p_term_translate term_translate; /**< Terminal translate function pointer */
@@ -25,8 +31,9 @@ typedef struct TERM_STATE {
     unsigned term_num_cols;          /**< Terminal column */
     unsigned term_cx;                /**< Terminal current x */
     unsigned term_cy;                /**< Terminal current y */
+    unsigned term_mode;              /**< Terminal character mode */
     void *usr;                       /**< User defined pointer */
-} TERM_STATE;
+};
 
 // ****************************************************************************
 // Exported functions
@@ -52,6 +59,10 @@ void term_putstr( TERM_STATE *t, const char* str, unsigned size );
 unsigned term_get_cx(TERM_STATE *t);
 unsigned term_get_cy(TERM_STATE *t);
 int term_getch( TERM_STATE *t, int mode );
+void term_reset_mode( TERM_STATE *t );
+void term_sync_size( TERM_STATE *t );
+void term_set_size( TERM_STATE *t, unsigned num_cols, unsigned num_lines );
+void term_set_mode( TERM_STATE *t, int mode, int set );
 
 #define TERM_KEYCODES\
   _D( KC_UP ),\

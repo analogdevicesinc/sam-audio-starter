@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -37,7 +37,9 @@
 #else
 #define __MCAPI_common_start ___MCAPI_common_start
 #define __MCAPI_sharc0_end   ___MCAPI_sharc0_end
+#if defined(___MCAPI_sharc1_end)
 #define __MCAPI_sharc1_end   ___MCAPI_sharc1_end
+#endif
 #define DECL extern "asm"
 #endif
 
@@ -62,6 +64,9 @@ SAE_RESULT sae_unInitialize(SAE_CONTEXT **contextPtr)
     return(result);
 }
 
+#define PTRToU32(x) ((uint32_t)(uintptr_t)(x))
+#define U32ToPTR(x) ((void *)(uintptr_t)(x))
+
 SAE_RESULT sae_initialize(SAE_CONTEXT **contextPtr, SAE_CORE_IDX coreIdx, bool ipcMaster)
 {
     SAE_RESULT result = SAE_RESULT_OK;
@@ -73,9 +78,15 @@ SAE_RESULT sae_initialize(SAE_CONTEXT **contextPtr, SAE_CORE_IDX coreIdx, bool i
      * SHARC1 as the last MCAPI segment.  In all cases, the memory
      * is contiguous with the COMMON and ARM as the first two segments.
      * Determine the end by whichever SHARC has the highest address.
+     * Some variants only support one SHARC+ processor. In this case,
+     * assume the end address is SHARC0 core.
      */
+#if defined(__MCAPI_sharc1_end)
     MCAPI_end = __MCAPI_sharc0_end > __MCAPI_sharc1_end ?
         __MCAPI_sharc0_end : __MCAPI_sharc1_end;
+#else
+    MCAPI_end = __MCAPI_sharc0_end;
+#endif
 
     MCAPI_SIZE = (uintptr_t)MCAPI_end - (uintptr_t)__MCAPI_common_start;
 
@@ -123,9 +134,8 @@ size_t sae_getMsgBufferSize(SAE_MSG_BUFFER *msg)
 
 void *sae_getMsgBufferPayload(SAE_MSG_BUFFER *msg)
 {
-    return(msg->payload);
+    return((void *)(uintptr_t)msg->payload);
 }
-
 
 SAE_MSG_BUFFER *sae_createMsgBuffer(SAE_CONTEXT *context, size_t size, void **payload)
 {
@@ -139,10 +149,10 @@ SAE_MSG_BUFFER *sae_createMsgBuffer(SAE_CONTEXT *context, size_t size, void **pa
         SAE_MEMSET(msg, 0, sizeof(*msg));
         msg->ref = 1;
         msg->msgType = MSG_TYPE_USER;
-        msg->payload = (void *)((uint8_t *)msg + sizeof(*msg));
+        msg->payload = (uintptr_t)msg + sizeof(*msg);
         msg->size = (uint32_t)size;
         if (payload) {
-            *payload = msg->payload;
+            *payload = U32ToPTR(msg->payload);
         }
     }
 
@@ -212,7 +222,7 @@ static SAE_RESULT sae_queueMsgBuffer(SAE_CONTEXT *context, SAE_MSG_BUFFER *msg,
     }
 
     if (!sae_queueFull(msgQueue)) {
-        msgQueue->queue[msgQueue->head] = (void *)msg;
+        msgQueue->queue[msgQueue->head] = PTRToU32(msg);
         msgQueue->head = ((msgQueue->head + 1) & (IPC_MAX_MSG_QUEUE_SIZE - 1));
     } else {
         result = SAE_RESULT_QUEUE_FULL;
@@ -227,7 +237,7 @@ static SAE_RESULT sae_dequeueMsgBuffer(SAE_CONTEXT *context, SAE_MSG_BUFFER **ms
     SAE_RESULT result = SAE_RESULT_OK;
 
     if (!sae_queueEmpty(msgQueue)) {
-        *msg = (SAE_MSG_BUFFER *)msgQueue->queue[msgQueue->tail];
+        *msg = (SAE_MSG_BUFFER *)U32ToPTR(msgQueue->queue[msgQueue->tail]);
         msgQueue->tail = ((msgQueue->tail + 1) & (IPC_MAX_MSG_QUEUE_SIZE - 1));
     } else {
         *msg = NULL;

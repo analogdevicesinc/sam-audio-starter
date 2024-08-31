@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2021 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -8,7 +8,6 @@
  * otherwise using the software constitutes acceptance of the license. The
  * software may not be used except as expressly authorized under the license.
  */
-
 #ifndef _context_h
 #define _context_h
 
@@ -17,8 +16,6 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "queue.h"
-#include "event_groups.h"
 
 #include "spi_simple.h"
 #include "twi_simple.h"
@@ -32,14 +29,17 @@
 #include "uac2_soundcard.h"
 #include "sae.h"
 #include "ipc.h"
-#include "lwip_adi_ether_netif.h"
-#include "lwip/netif.h"
+#include "a2b_to_sport_cfg.h"
 #include "wav_file.h"
 #include "clock_domain_defs.h"
+#include "spiffs.h"
+#include "route.h"
+#include "uac2.h"
 #include "rtp_stream.h"
 #include "vban_stream.h"
-#include "task_cfg.h"
-#include "spiffs.h"
+
+#include "lwip_adi_ether_netif.h"
+#include "lwip/netif.h"
 
 /* Misc defines */
 #define UNUSED(expr) do { (void)(expr); } while (0)
@@ -66,10 +66,10 @@
 #define USB_VENDOR_ID                  (0x064b)  /* Analog Devices Vendor ID */
 #define USB_PRODUCT_ID                 (0x0007)  /* CLD UAC+CDC */
 #define USB_MFG_STRING                 "Analog Devices, Inc."
-#define USB_PRODUCT_STRING             "Audio v2.0 Device (SAM 16x16)"
+#define USB_PRODUCT_STRING             "SAM (16x16x16bit)"
 #define USB_SERIAL_NUMBER_STRING       NULL
-#define USB_OUT_RING_BUFF_FRAMES       (4 * SYSTEM_BLOCK_SIZE)
-#define USB_IN_RING_BUFF_FRAMES        (4 * SYSTEM_BLOCK_SIZE)
+#define USB_OUT_RING_BUFF_FRAMES       (6 * SYSTEM_BLOCK_SIZE)
+#define USB_IN_RING_BUFF_FRAMES        (6 * SYSTEM_BLOCK_SIZE)
 #define USB_OUT_RING_BUFF_FILL         (USB_OUT_RING_BUFF_FRAMES / 2)
 #define USB_IN_RING_BUFF_FILL          (USB_IN_RING_BUFF_FRAMES / 2)
 
@@ -78,19 +78,32 @@
 #define VBAN_RING_BUF_SAMPLES          (128 * 1024)
 #define FILE_RING_BUF_SAMPLES          (128 * 1024)
 
+#define WAV_MAX_CHANNELS               (64)
+#define VU_MAX_CHANNELS                (64)
+
 #define CODEC_AUDIO_CHANNELS           (8)
 #define CODEC_DMA_CHANNELS             (8)
-#define CODEC_BLOCK_SIZE               (SYSTEM_BLOCK_SIZE)
 
 #define SPDIF_AUDIO_CHANNELS           (2)
 #define SPDIF_DMA_CHANNELS             (2)
-#define SPDIF_BLOCK_SIZE               (SYSTEM_BLOCK_SIZE)
 
 #define A2B_AUDIO_CHANNELS             (32)
 #define A2B_DMA_CHANNELS               (32)
-#define A2B_BLOCK_SIZE                 (SYSTEM_BLOCK_SIZE)
 
-#define AD2425W_SAM_I2C_ADDR           (0x68)
+#define SHARC0_AUDIO_IN_CHANNELS    (SYSTEM_MAX_CHANNELS)
+#define SHARC0_AUDIO_OUT_CHANNELS   (SYSTEM_MAX_CHANNELS)
+#define SHARC1_AUDIO_IN_CHANNELS    (SYSTEM_MAX_CHANNELS)
+#define SHARC1_AUDIO_OUT_CHANNELS   (SYSTEM_MAX_CHANNELS)
+
+/*
+ * The A2B I2C addresses are latched at power up and cannot be changed
+ * at runtime. Use the 'a2b' command to set the I2C address at runtime to
+ * match the HW.
+ *
+ * By default AD242x boards have address 0x68 and AD243x boards have
+ * address 0x6A
+ */
+#define DEFAULT_A2B_I2C_ADDR           (0x68)
 
 #define SPIFFS_VOL_NAME                "sf:"
 #define SDCARD_VOL_NAME                "sd:"
@@ -101,16 +114,57 @@ typedef enum A2B_BUS_MODE {
     A2B_BUS_MODE_SUB
 } A2B_BUS_MODE;
 
+/*
+ * FS = Frame Sync, BCLK = Bit Clock
+ *
+ * TDM 16 x 32-bit
+ * Rising edge FS (pulse high)
+ * Early FS (data MSb delayed 1 BCLK)
+ * Assert FS and data on BCLK rising edge
+ * Sample FS and data on BCLK falling edge
+ *
+ */
 #define SYSTEM_I2SGCFG                 (0x04)
 #define SYSTEM_I2SCFG                  (0x7F)
 
 /* Audio routing */
 #define MAX_AUDIO_ROUTES               (16)
 
-#define DEFAULT_IP_ADDR                "192.168.2.2"
-#define DEFAULT_GW_ADDR                "192.168.2.1"
-#define DEFAULT_NETMASK                "255.255.255.0"
-#define DEFAULT_STATIC_IP              false
+/* Ethernet defines */
+#define DEFAULT_ETH0_IP_ADDR       "169.254.0.0"
+#define DEFAULT_ETH0_NETMASK       "255.255.0.0"
+#define DEFAULT_ETH0_GW_ADDR       "0.0.0.0"
+#define DEFAULT_ETH0_BASE_HOSTNAME "SAM"
+#define DEFAULT_ETH0_STATIC_IP     false
+#define DEFAULT_ETH0_DEFAULT_IFACE true
+
+typedef struct ETH_CFG {
+    ADI_ETHER_EMAC_PORT port;
+    char *ip_addr;
+    char *gateway_addr;
+    char *netmask;
+    bool static_ip;
+    bool default_iface;
+    char *base_hostname;
+} ETH_CFG;
+
+typedef struct ETH {
+    struct netif netif;
+    adi_ether_netif *adi_ether;
+    uint8_t macaddr[6];
+    char hostname[32];
+} ETH;
+
+/* System Configuration */
+typedef struct APP_CFG {
+    ETH_CFG eth0;
+    ETH_CFG eth1;
+    int usbOutChannels;
+    int usbInChannels;
+    int usbWordSize;
+    unsigned a2bI2CAddr;
+    unsigned a2b2I2CAddr;
+} APP_CFG;
 
 /* Task notification values */
 enum {
@@ -119,49 +173,30 @@ enum {
 };
 
 /* USB Audio OUT (Rx) endpoint stats */
-struct _USB_AUDIO_RX_STATS {
+typedef struct _USB_AUDIO_RX_STATS {
     uint32_t usbRxOverRun;
     uint32_t usbRxUnderRun;
     UAC2_ENDPOINT_STATS ep;
-};
-typedef struct _USB_AUDIO_RX_STATS USB_AUDIO_RX_STATS;
+} USB_AUDIO_RX_STATS;
 
 /* USB Audio IN (Tx) endpoint stats */
-struct _USB_AUDIO_TX_STATS {
+typedef struct _USB_AUDIO_TX_STATS {
     uint32_t usbTxOverRun;
     uint32_t usbTxUnderRun;
     UAC2_ENDPOINT_STATS ep;
-};
-typedef struct _USB_AUDIO_TX_STATS USB_AUDIO_TX_STATS;
+} USB_AUDIO_TX_STATS;
 
-struct _USB_AUDIO_STATS {
+typedef struct _USB_AUDIO_STATS {
     USB_AUDIO_RX_STATS rx;
     USB_AUDIO_TX_STATS tx;
-};
-typedef struct _USB_AUDIO_STATS USB_AUDIO_STATS;
-
-enum ETHERNET_EVENT_BITS {
-    ETHERNET_READY   = (1 << 0),
-    ETHERNET_LINK_UP = (1 << 1)
-};
-
-typedef struct APP_CFG {
-    int usbOutChannels;
-    int usbInChannels;
-    int usbWordSize;
-    bool usbRateFeedbackHack;
-    char *ip_addr;
-    char *gateway_addr;
-    char *netmask;
-    bool static_ip;
-} APP_CFG;
+} USB_AUDIO_STATS;
 
 /*
  * The main application context.  Used as a container to carry a
  * variety of useful pointers, handles, etc., between various
  * modules and subsystems.
  */
-struct _APP_CONTEXT {
+typedef struct _APP_CONTEXT {
 
     /* SAM Version */
     int samVersion;
@@ -175,10 +210,11 @@ struct _APP_CONTEXT {
     sSPIPeriph *spiFlashHandle;
     FLASH_INFO *flashHandle;
     sTWI *twi0Handle;
+    sTWI *twi1Handle;
     sTWI *twi2Handle;
-    sTWI *ad2425TwiHandle;
-    sTWI *ethClkTwiHandle;
     sTWI *adau1761TwiHandle;
+    sTWI *ethClkTwiHandle;
+    sTWI *a2bTwiHandle;
     sSPORT *codecSportOutHandle;
     sSPORT *codecSportInHandle;
     sSPORT *spdifSportOutHandle;
@@ -195,15 +231,10 @@ struct _APP_CONTEXT {
     /* Shell context */
     SHELL_CONTEXT shell;
 
-    /* Network interface */
-    struct netif eth0_netif;
-    adi_ether_netif *adi_ether;
-    EventGroupHandle_t  ethernetEvents;
-    char eth0_addr[16];
+    /* SHARC Audio Engine context */
+    SAE_CONTEXT *saeContext;
 
-    /* UAC2 related variables and settings including the
-     * task handle, audio ring buffers, and IN/OUT
-     * enable status.
+    /* UAC2 related variables and settings
      *
      * Rx/Tx are from the target's perspective.
      * Rx = UAC2 OUT, Tx = UAC2 IN
@@ -217,9 +248,6 @@ struct _APP_CONTEXT {
     USB_AUDIO_STATS uac2stats;
     UAC2_APP_CONFIG uac2cfg;
 
-    /* SHARC Audio Engine context */
-    SAE_CONTEXT *saeContext;
-
     /* Task handles (used in 'stacks' command) */
     TaskHandle_t houseKeepingTaskHandle;
     TaskHandle_t pollStorageTaskHandle;
@@ -229,11 +257,14 @@ struct _APP_CONTEXT {
     TaskHandle_t idleTaskHandle;
     TaskHandle_t wavSrcTaskHandle;
     TaskHandle_t wavSinkTaskHandle;
+    TaskHandle_t a2bSlaveTaskHandle;
+    TaskHandle_t a2bIrqTaskHandle;
+    TaskHandle_t telnetTaskHandle;
+    TaskHandle_t vuTaskHandle;
     TaskHandle_t rtpRxTaskHandle;
     TaskHandle_t rtpTxTaskHandle;
     TaskHandle_t vbanRxTaskHandle;
     TaskHandle_t vbanTxTaskHandle;
-    TaskHandle_t a2bSlaveTaskHandle;
 
     /* A2B XML init items */
     void *a2bInitSequence;
@@ -246,14 +277,12 @@ struct _APP_CONTEXT {
     void *spdifAudioOut[2];
     void *a2bAudioIn[2];
     void *a2bAudioOut[2];
-    void *usbAudioRx[1];
-    void *usbAudioTx[1];
-    void *wavAudioSrc[1];
-    void *wavAudioSink[1];
-    void *rtpAudioRx[1];
-    void *rtpAudioTx[1];
-    void *vbanAudioRx[1];
-    void *vbanAudioTx[1];
+    void *sharc0AudioIn[2];
+    void *sharc0AudioOut[2];
+    void *sharc1AudioIn[2];
+    void *sharc1AudioOut[2];
+    void *a2b2AudioIn[2];
+    void *a2b2AudioOut[2];
 
     /* Audio ping/pong buffer lengths */
     unsigned codecAudioInLen;
@@ -262,37 +291,23 @@ struct _APP_CONTEXT {
     unsigned spdifAudioOutLen;
     unsigned a2bAudioInLen;
     unsigned a2bAudioOutLen;
-    unsigned usbAudioRxLen;
-    unsigned usbAudioTxLen;
-    unsigned wavAudioSrcLen;
-    unsigned wavAudioSinkLen;
-    unsigned rtpAudioRxLen;
-    unsigned rtpAudioTxLen;
-    unsigned vbanAudioRxLen;
-    unsigned vbanAudioTxLen;
+    unsigned sharc0AudioInLen;
+    unsigned sharc0AudioOutLen;
+    unsigned sharc1AudioInLen;
+    unsigned sharc1AudioOutLen;
 
     /* SAE buffer pointers */
-    SAE_MSG_BUFFER *codecMsgIn[2];
-    SAE_MSG_BUFFER *codecMsgOut[2];
-    SAE_MSG_BUFFER *spdifMsgIn[2];
-    SAE_MSG_BUFFER *spdifMsgOut[2];
-    SAE_MSG_BUFFER *a2bMsgIn[2];
-    SAE_MSG_BUFFER *a2bMsgOut[2];
-    SAE_MSG_BUFFER *usbMsgRx[1];
-    SAE_MSG_BUFFER *usbMsgTx[1];
-    SAE_MSG_BUFFER *wavMsgSrc[1];
-    SAE_MSG_BUFFER *wavMsgSink[1];
-    SAE_MSG_BUFFER *rtpMsgRx[1];
-    SAE_MSG_BUFFER *rtpMsgTx[1];
-    SAE_MSG_BUFFER *vbanMsgRx[1];
-    SAE_MSG_BUFFER *vbanMsgTx[1];
+    SAE_MSG_BUFFER *sharc0MsgIn[2];
+    SAE_MSG_BUFFER *sharc0MsgOut[2];
+    SAE_MSG_BUFFER *sharc1MsgIn[2];
+    SAE_MSG_BUFFER *sharc1MsgOut[2];
 
     /* Audio routing table */
-    SAE_MSG_BUFFER *routingMsgBuffer;
-    IPC_MSG *routingMsg;
+    ROUTE_INFO *routingTable;
 
     /* SDCARD */
     bool sdPresent;
+    bool sdRemount;
 
     /* APP config */
     APP_CFG cfg;
@@ -330,14 +345,22 @@ struct _APP_CONTEXT {
 
     /* A2B mode */
     A2B_BUS_MODE a2bmode;
+    A2B_TO_SPORT_CFG_XCVR a2bxcvr;
+    bool a2bPresent;
     bool a2bSlaveActive;
+    bool discoverCmdStatus;
+    bool a2bIrqDisable;
+    unsigned a2bOutChannels;
+    unsigned a2bInChannels;
 
     /* Clock domain management */
     uint32_t clockDomainMask[CLOCK_DOMAIN_MAX];
     uint32_t clockDomainActive[CLOCK_DOMAIN_MAX];
 
-};
-typedef struct _APP_CONTEXT APP_CONTEXT;
+    /* Ethernet Network interface */
+    ETH eth[2];
+
+} APP_CONTEXT;
 
 /*
  * Make the application context global for convenience

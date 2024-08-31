@@ -23,7 +23,7 @@
 #include "wav_audio.h"
 #include "umm_malloc.h"
 #include "clock_domain.h"
-#include "syslog.h"
+#include "task_cfg.h"
 
 static unsigned wavSrcUnderflow = 0;
 static unsigned wavSinkOverflow = 0;
@@ -37,7 +37,6 @@ enum {
 
 static SYSTEM_AUDIO_TYPE srcBuffer[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 static SYSTEM_AUDIO_TYPE srcBuffer2[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
-static SYSTEM_AUDIO_TYPE sinkBuffer[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 static SYSTEM_AUDIO_TYPE sinkBuffer2[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 static SYSTEM_AUDIO_TYPE sinkBuffer3[WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE];
 
@@ -169,112 +168,107 @@ void wav_audio_init(APP_CONTEXT *context)
 
 }
 
-/* Transfers WAV Sink audio (ISR context) */
-SAE_MSG_BUFFER *xferWavSinkAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferWavSinkAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     WAV_FILE *wavSink = &context->wavSink;
     PaUtilRingBuffer *wavSinkRB = context->wavSinkRB;
     CLOCK_DOMAIN myCd;
+    BaseType_t wake;
+
+    static bool first = true;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_WAV_SINK);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_WAV_SINK);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
-    if (!wavSink->enabled) {
-        return(msg);
+    if (!wavSink->enabled || (wavSink->channels == 0)) {
+        *numChannels = 0;
+        first = true;
+        return(1);
     }
 
-    samplesIn = audio->numChannels * audio->numFrames;
+    samplesIn = wavSink->channels * SYSTEM_BLOCK_SIZE;
     samplesOut = PaUtil_GetRingBufferWriteAvailable(wavSinkRB);
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn <= samplesOut) {
-        copyAndConvert(
-            audio->data, audio->wordSize, audio->numChannels,
-            sinkBuffer, sizeof(SYSTEM_AUDIO_TYPE), wavSink->channels,
-            audio->numFrames, true
-        );
-        PaUtil_WriteRingBuffer(
-            wavSinkRB, sinkBuffer, wavSink->channels * audio->numFrames
-        );
+        if (!first) {
+            PaUtil_WriteRingBuffer(
+                wavSinkRB, audio, samplesIn
+            );
+        }
     } else {
         wavSinkOverflow++;
     }
 
+    memset(audio, 0, samplesIn * sizeof(SYSTEM_AUDIO_TYPE));
+    *numChannels = wavSink->channels;
+    first = false;
+
     if (samplesOut < (WAV_RING_BUF_SAMPLES / 2)) {
         xTaskNotifyFromISR(context->wavSinkTaskHandle,
-            WAV_TASK_AUDIO_SINK_MORE_DATA, eSetValueWithoutOverwrite, NULL
+            WAV_TASK_AUDIO_SINK_MORE_DATA, eSetValueWithoutOverwrite, &wake
         );
+        portYIELD_FROM_ISR(wake);
     }
 
-    return(msg);
+    return(1);
 }
 
-/* Transfers WAV Src audio (ISR context) */
-SAE_MSG_BUFFER *xferWavSrcAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd)
+int xferWavSrcAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels)
 {
     unsigned samplesIn;
     unsigned samplesOut;
-    IPC_MSG *ipc;
-    IPC_MSG_AUDIO *audio;
     WAV_FILE *wavSrc = &context->wavSrc;
     PaUtilRingBuffer *wavSrcRB = context->wavSrcRB;
     CLOCK_DOMAIN myCd;
+    BaseType_t wake;
 
     myCd = clock_domain_get(context, CLOCK_DOMAIN_BITM_WAV_SRC);
     if (myCd != cd) {
-        return(NULL);
+        return(0);
     }
     clock_domain_set_active(context, myCd, CLOCK_DOMAIN_BITM_WAV_SRC);
 
-    ipc = sae_getMsgBufferPayload(msg);
-    audio = &ipc->audio;
-    audio->clockDomain = myCd;
-
-    if (!wavSrc->enabled) {
-        audio->numChannels = 0;
-        return(msg);
+    if (!wavSrc->enabled || (wavSrc->channels == 0)) {
+        *numChannels = 0;
+        return(1);
     }
 
     samplesIn = PaUtil_GetRingBufferReadAvailable(wavSrcRB);
     samplesOut = wavSrc->channels * SYSTEM_BLOCK_SIZE;
 
     if ((samplesIn == 0) || (samplesOut == 0)) {
-        audio->numChannels = 0;
-        return(msg);
+        *numChannels = 0;
+        return(1);
     }
 
     if (samplesIn >= samplesOut) {
-        audio->numChannels = wavSrc->channels;
-        audio->numFrames = SYSTEM_BLOCK_SIZE;
-        audio->wordSize = sizeof(SYSTEM_AUDIO_TYPE);
         PaUtil_ReadRingBuffer(
-            wavSrcRB, audio->data, samplesOut
+            wavSrcRB, audio, samplesOut
         );
+        *numChannels = wavSrc->channels;
     } else {
         wavSrcUnderflow++;
+        *numChannels = 0;
     }
 
     if (samplesIn < (WAV_RING_BUF_SAMPLES / 2)) {
         xTaskNotifyFromISR(context->wavSrcTaskHandle,
-            WAV_TASK_AUDIO_SRC_MORE_DATA, eSetValueWithoutOverwrite, NULL
+            WAV_TASK_AUDIO_SRC_MORE_DATA, eSetValueWithoutOverwrite, &wake
         );
+        portYIELD_FROM_ISR(wake);
     }
 
-    return(msg);
+    return(1);
 }

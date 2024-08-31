@@ -17,10 +17,10 @@
 
 void vban_audio_init(APP_CONTEXT *context);
 
-SAE_MSG_BUFFER *xferVbanTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferVbanRxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
-SAE_MSG_BUFFER *xferVbanRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
+int xferVbanTxAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
+    unsigned *numChannels);
 
 #endif

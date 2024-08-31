@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -75,6 +75,9 @@ void cpuLoadtaskSwitchHook(void *taskHandle);
  * idle time.  This function is expected to be called from ISR
  * handlers.
  *
+ * This function is depricated.  Use cpuLoadISREnter() and 
+ * cpuLoadISRExit() APIs instead.
+ *
  * The cycles passed in through 'isrCycles' must be the same unit of
  * measure as the CPU_LOAD_GET_TIME routine passed into cpuLoadInit().
  *
@@ -138,5 +141,27 @@ uint32_t cpuLoadGetTimeStamp(void);
  * @return  Microsecond equivalent of cycles
  ******************************************************************/
 uint32_t cpuLoadCyclesToMicrosecond(uint32_t cycles);
+
+/*!****************************************************************
+ * @brief  Tracks entry CPU cycles in ISR routines
+ *
+ * This function tracks ISR cycles during idle time.  This function 
+ * is expected to be called at the beginning of an ISR handler.  
+ * 
+ * Do not use with cpuLoadIsrCycles().
+ * 
+ ******************************************************************/
+void cpuLoadISREnter(void);
+
+/*!****************************************************************
+ * @brief  Tracks exit CPU cycles in ISR routines
+ *
+ * This function tracks ISR cycles during idle time.  This function 
+ * is expected to be called at the end of an ISR handler.  
+ * 
+ * Do not use with cpuLoadIsrCycles().
+ *
+ ******************************************************************/
+void cpuLoadISRExit(void);
 
 #endif

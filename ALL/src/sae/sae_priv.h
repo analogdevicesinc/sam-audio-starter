@@ -13,7 +13,6 @@
 #define _sae_priv_h
 
 #include "sae.h"
-#include "sae_stream.h"
 
 /*!****************************************************************
  * @brief SHARC Audio Engine message received callback
@@ -33,25 +32,7 @@ struct _SAE_MSG_BUFFER {
     uint8_t msgType;            /**< Message type */
     uint8_t eventId;            /**< Event ID */
     uint32_t size;              /**< Size of the allocated message */
-    void *payload;              /**< Pointer to the allocated message payload */
-};
-#pragma pack()
-
-#pragma pack(1)
-typedef struct _SAE_SUBSCRIBER_INFO {
-    uint8_t coreIdx;
-    void *audioCallBack;
-    void *usrPtr;
-} SAE_SUBSCRIBER_INFO;
-#pragma pack()
-
-#pragma pack(1)
-struct _SAE_STREAM {
-    uint8_t coreIdx;
-    void *audioCallBack;
-    void *usrPtr;
-    SAE_STREAM_INFO streamInfo;
-    void *next;
+    uint32_t payload;           /**< 32-bit address of the allocated message payload */
 };
 #pragma pack()
 

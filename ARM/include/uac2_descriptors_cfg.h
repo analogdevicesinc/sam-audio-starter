@@ -14,8 +14,9 @@
 
 #include "umm_malloc.h"
 
-/* Allocate all descriptors from the cached SDRAM heap */
-#define UAC20_DESCRIPTORS_HEAP  UMM_SDRAM_HEAP
+/* Allocate descriptors from the cached SDRAM heap and uncached 32-bit aligned memory */
+#define UAC20_DESCRIPTORS_HEAP     UMM_SDRAM_HEAP
+#define UAC20_L2_DESCRIPTORS_HEAP  UMM_L2_UNCACHED_HEAP
 
 #define UAC20_DESCRIPTORS_MALLOC(x)  \
     umm_malloc_heap(UAC20_DESCRIPTORS_HEAP, x)
@@ -28,5 +29,11 @@
 
 #define UAC20_DESCRIPTORS_FREE(x)    \
     umm_free_heap(UAC20_DESCRIPTORS_HEAP, x)
+    
+#define UAC20_L2_DESCRIPTORS_MALLOC_ALIGNED(x)  \
+    umm_malloc_heap_aligned(UAC20_L2_DESCRIPTORS_HEAP, x, sizeof(uint32_t))
+
+#define UAC20_L2_DESCRIPTORS_FREE_ALIGNED(x)  \
+    umm_free_heap_aligned(UAC20_L2_DESCRIPTORS_HEAP, x)
 
 #endif

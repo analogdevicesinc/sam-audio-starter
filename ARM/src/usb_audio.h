@@ -16,7 +16,7 @@
 #include <stdbool.h>
 
 #include "context.h"
-#include "ipc.h"
+#include "uac2_soundcard.h"
 
 uint16_t uac2Rx(void *data, void **nextData,
     uint16_t rxSize, void *usrPtr);
@@ -26,12 +26,11 @@ uint16_t uac2Tx(void *data, void **nextData,
 
 uint32_t uac2RateFeedback(void *usrPtr);
 
-SAE_MSG_BUFFER *xferUsbRxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
-SAE_MSG_BUFFER *xferUsbTxAudio(APP_CONTEXT *context, SAE_MSG_BUFFER *msg,
-    CLOCK_DOMAIN cd);
-
 void uac2EndpointEnabled(UAC2_DIR dir, bool enable, void *usrPtr);
+
+int xferUsbRxAudio(APP_CONTEXT *context, void **audio, CLOCK_DOMAIN cd);
+
+int xferUsbTxAudio(APP_CONTEXT *context, void **audio, CLOCK_DOMAIN cd);
 
 #endif
 

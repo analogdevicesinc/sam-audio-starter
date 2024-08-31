@@ -12,11 +12,14 @@
 #ifndef _wav_file_cfg_h
 #define _wav_file_cfg_h
 
+#include <sys/platform.h>
+
 #include "umm_malloc.h"
 
-#define WAVE_FILE_CALLOC          umm_calloc
-#define WAVE_FILE_FREE            umm_free
+/* Align WAV buffers on cache lines for efficient DMA */
+#define WAVE_FILE_CALLOC(x,y)  umm_calloc_aligned(x,y,ADI_CACHE_LINE_LENGTH)
+#define WAVE_FILE_FREE(x)      umm_free_aligned(x)
 
-#define WAVE_FILE_BUF_SIZE       (64 * 1024)
+#define WAVE_FILE_BUF_SIZE       (16 * 1024)
 
 #endif

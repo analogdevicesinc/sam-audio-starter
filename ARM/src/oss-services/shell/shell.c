@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <stdbool.h>
 
 #include "shell.h"
 #include "shell_string.h"
@@ -63,6 +64,7 @@ SHELL_FUNC( shell_stacks );
 SHELL_FUNC( shell_cpu );
 SHELL_FUNC( shell_usb );
 SHELL_FUNC( shell_recv );
+SHELL_FUNC( shell_send );
 SHELL_FUNC( shell_fsck );
 SHELL_FUNC( shell_update );
 SHELL_FUNC( shell_reset );
@@ -80,6 +82,12 @@ SHELL_FUNC( shell_cmdlist );
 SHELL_FUNC( shell_edit );
 SHELL_FUNC( shell_drive );
 SHELL_FUNC( shell_delay );
+SHELL_FUNC( shell_dump );
+SHELL_FUNC( shell_fdump );
+SHELL_FUNC( shell_vu );
+SHELL_FUNC( shell_eth );
+SHELL_FUNC( shell_resize );
+SHELL_FUNC( shell_date );
 
 SHELL_HELP( help );
 SHELL_HELP( ver );
@@ -97,6 +105,7 @@ SHELL_HELP( stacks );
 SHELL_HELP( cpu );
 SHELL_HELP( usb );
 SHELL_HELP( recv );
+SHELL_HELP( send );
 SHELL_HELP( fsck );
 SHELL_HELP( update );
 SHELL_HELP( reset );
@@ -114,6 +123,12 @@ SHELL_HELP( cmdlist );
 SHELL_HELP( edit );
 SHELL_HELP( drive );
 SHELL_HELP( delay );
+SHELL_HELP( dump );
+SHELL_HELP( fdump );
+SHELL_HELP( vu );
+SHELL_HELP( eth );
+SHELL_HELP( resize );
+SHELL_HELP( date );
 
 //static const SHELL_COMMAND shell_commands[] =
 const SHELL_COMMAND shell_commands[] =
@@ -139,6 +154,7 @@ const SHELL_COMMAND shell_commands[] =
   { "uac", shell_usb },
   { "usb", shell_usb },
   { "recv", shell_recv },
+  { "send", shell_send },
   { "fsck", shell_fsck },
   { "update", shell_update },
   { "reset", shell_reset },
@@ -156,6 +172,12 @@ const SHELL_COMMAND shell_commands[] =
   { "edit", shell_edit },
   { "drive", shell_drive },
   { "delay", shell_delay },
+  { "dump", shell_dump },
+  { "fdump", shell_fdump },
+  { "vu", shell_vu },
+  { "eth", shell_eth },
+  { "resize", shell_resize },
+  { "date", shell_date },
   { "exit", NULL },
   { NULL, NULL }
 };
@@ -178,6 +200,7 @@ static const SHELL_HELP_DATA shell_help_data[] =
   SHELL_INFO( cpu ),
   SHELL_INFO( usb ),
   SHELL_INFO( recv ),
+  SHELL_INFO( send ),
   SHELL_INFO( fsck ),
   SHELL_INFO( update ),
   SHELL_INFO( reset ),
@@ -195,12 +218,82 @@ static const SHELL_HELP_DATA shell_help_data[] =
   SHELL_INFO( edit ),
   SHELL_INFO( drive ),
   SHELL_INFO( delay ),
+  SHELL_INFO( dump ),
+  SHELL_INFO( fdump ),
+  SHELL_INFO( vu ),
+  SHELL_INFO( eth ),
+  SHELL_INFO( resize ),
+  SHELL_INFO( date ),
   { NULL, NULL, NULL }
 };
 
 // ****************************************************************************
 // Built-in help functions
 // ****************************************************************************
+
+static void shell_alphabetize(SHELL_CONTEXT *ctx)
+{
+    bool     bSwaped;
+    bool     bSorted;
+    uint16_t u16HelpTableIdx;
+    uint16_t u16HelpTableSize;
+    uint16_t u16HelpTableCurIdx;
+    uint16_t u16IndicesTableIdx;
+    uint16_t u16HelpTablePrevIdx;
+
+    /* Local Inits */
+    u16HelpTableIdx  = 1U;
+    bSwaped          = false;
+    bSorted          = false;
+    u16HelpTableSize = sizeof(shell_help_data)/sizeof(SHELL_HELP_DATA);
+
+    /* Allocate array based on the size of the help table */
+    ctx->uHelpIndicies = SHELL_MALLOC(u16HelpTableSize * sizeof(*ctx->uHelpIndicies));
+
+    if(ctx->uHelpIndicies != NULL)
+    {
+        /* Initialize array */
+        for(u16IndicesTableIdx = 0U; u16IndicesTableIdx < u16HelpTableSize; u16IndicesTableIdx++)
+        {
+            ctx->uHelpIndicies[u16IndicesTableIdx] = u16IndicesTableIdx;
+        }
+
+        /* The last element in the table is intentionally NULL so exclude from alphabetization */
+        u16HelpTableSize--;
+
+        /* Perform alphabetization, sorting the indices in the array */
+        do
+        {
+            /* Find our starting point */
+            u16HelpTableCurIdx  = ctx->uHelpIndicies[u16HelpTableIdx];
+            u16HelpTablePrevIdx = ctx->uHelpIndicies[u16HelpTableIdx - 1U];
+
+            if(strcmp(shell_help_data[u16HelpTableCurIdx].cmd, shell_help_data[u16HelpTablePrevIdx].cmd) < 0)
+            {
+                ctx->uHelpIndicies[u16HelpTableIdx]      = u16HelpTablePrevIdx;
+                ctx->uHelpIndicies[u16HelpTableIdx - 1U] = u16HelpTableCurIdx;
+                bSwaped                                  = true;
+            }
+
+            u16HelpTableIdx++;
+
+            /* Exit if we are done sorting - otherwise loop back around again */
+            if(u16HelpTableIdx == u16HelpTableSize)
+            {
+                if(bSwaped == false)
+                {
+                   bSorted = true;
+                }
+                else
+                {
+                   /* Reset parameters */
+                   bSwaped         = false;
+                   u16HelpTableIdx = 1U;
+                }
+            }
+        }while(bSorted == false);
+    }
+}
 
 // 'Help' help data
 const char shell_help_help[] = "[<command>]\n"
@@ -211,6 +304,8 @@ const char shell_help_summary_help[] = "shell help";
 void shell_help( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
   const SHELL_HELP_DATA *ph;
+  uint16_t u16CmdIdx;
+  uint16_t u16TableIdx;
 
   if( argc > 2 )
   {
@@ -223,14 +318,19 @@ void shell_help( SHELL_CONTEXT *ctx, int argc, char **argv )
     // List commands and their summary
     // It is assumed that a command with an empty summary does not
     // actually exist (helpful for conditional compilation)
+    // Noting that if we could not alphabetize due to constrained memory,
+    // just print the table as-is.
+    u16CmdIdx = 0U;
+    u16TableIdx = (ctx->uHelpIndicies == NULL) ? u16CmdIdx : ctx->uHelpIndicies[u16CmdIdx];
     printf( "Shell commands:\n" );
     while( 1 )
     {
-      if( ph->cmd == NULL )
-        break;
-      if( strlen( ph->help_summary ) > 0 )
-        printf( "  %-10s - %s\n", ph->cmd, ph->help_summary );
-      ph ++;
+        if( ph[u16TableIdx].cmd == NULL )
+            break;
+        if( strlen( ph[u16TableIdx].help_summary ) > 0 )
+            printf( "  %-10s - %s\n", ph[u16TableIdx].cmd, ph[u16TableIdx].help_summary );
+        u16CmdIdx++;
+        u16TableIdx = (ctx->uHelpIndicies == NULL) ? u16CmdIdx : ctx->uHelpIndicies[u16CmdIdx];
     }
     printf( "For more information use 'help <command>'.\n" );
   }
@@ -425,14 +525,22 @@ void shell_exec( SHELL_CONTEXT *ctx, const char *command )
 {
     char *cmd;
     unsigned len;
+    int interactive;
 
     // Make a copy of the command since it gets overwritten
     len = strlen(command) + 1;
     cmd = SHELL_MALLOC(len);
     memcpy(cmd, command, len);
 
+    // Save interactive status; set non-interactive
+    interactive = ctx->interactive;
+    ctx->interactive = 0;
+
     // Execute the command
     shellh_execute_command(ctx, cmd, 0);
+
+    // Restore interactive status
+    ctx->interactive = interactive;
 
     // Free the copy memory
     SHELL_FREE(cmd);
@@ -440,6 +548,8 @@ void shell_exec( SHELL_CONTEXT *ctx, const char *command )
 
 void shell_start( SHELL_CONTEXT *ctx )
 {
+  term_reset_mode(&ctx->t);
+  term_sync_size(&ctx->t);
   printf("\n");
   shellh_execute_command(ctx, "ver", 0);
   shell_poll(ctx);
@@ -480,13 +590,19 @@ int shell_init( SHELL_CONTEXT *ctx, p_term_out term_out, p_term_in term_in, int 
     memset(ctx, 0, sizeof(*ctx));
     ctx->blocking = blocking;
     ctx->usr = usr;
+    ctx->interactive = 1;
     shell_platform_init(ctx, term_out, term_in);
     linenoise_init(ctx);
+    shell_alphabetize(ctx);
     return 1;
 }
 
 void shell_deinit( SHELL_CONTEXT *ctx )
 {
+    if (ctx->uHelpIndicies) {
+        SHELL_FREE(ctx->uHelpIndicies);
+        ctx->uHelpIndicies = NULL;
+    }
     linenoise_cleanup(ctx);
     shell_platform_deinit(ctx);
 }

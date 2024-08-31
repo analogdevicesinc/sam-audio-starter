@@ -46,6 +46,14 @@ bool openRtpStream(RTP_STREAM *rs)
     bool ok = false;
     int ret;
 
+    if (rs->ipStr == NULL) {
+        return(false);
+    }
+
+    if (rs->enabled) {
+        return(false);
+    }
+
     memset(&rs->ipAddr, 0, sizeof(rs->ipAddr));
     rs->ipAddr.sin_family = AF_INET;
     rs->ipAddr.sin_len = sizeof(rs->ipAddr);
@@ -55,22 +63,24 @@ bool openRtpStream(RTP_STREAM *rs)
     }
     rs->ipAddr.sin_port = htons(rs->port);
 
-    memset(&srcAddr, 0, sizeof(srcAddr));
-    srcAddr.sin_family = AF_INET;
-    srcAddr.sin_len = sizeof(srcAddr);
-    srcAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    srcAddr.sin_port = htons(rs->port);
-
     rs->socket = socket(AF_INET, SOCK_DGRAM, 0);
     ok = (rs->socket >= 0);
     if (!ok) {
         goto abort;
     }
 
-    ret = bind(rs->socket, (struct sockaddr *)&srcAddr, sizeof(srcAddr));
-    ok = (ret == 0);
-    if (!ok) {
-        goto abort;
+    if (rs->isRx) {
+        memset(&srcAddr, 0, sizeof(srcAddr));
+        srcAddr.sin_family = AF_INET;
+        srcAddr.sin_len = sizeof(srcAddr);
+        srcAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+        srcAddr.sin_port = htons(rs->port);
+
+        ret = bind(rs->socket, (struct sockaddr *)&srcAddr, sizeof(srcAddr));
+        ok = (ret == 0);
+        if (!ok) {
+            goto abort;
+        }
     }
 
     rs->pkt = RTP_MALLOC(RTP_MAX_PACKET_SIZE);
