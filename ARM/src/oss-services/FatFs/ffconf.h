@@ -299,6 +299,9 @@
 /  SemaphoreHandle_t and etc. A header file for O/S definitions needs to be
 /  included somewhere in the scope of ff.h. */
 
+#include <sys/platform.h>
+#define FF_SECTOR_CACHE_ALIGN	__attribute__ ((aligned (ADI_CACHE_LINE_LENGTH)))
+/* The option FF_SECTOR_CACHE_ALIGN aligns the sector cache in memory */
 
 
 /*--- End of configuration options ---*/

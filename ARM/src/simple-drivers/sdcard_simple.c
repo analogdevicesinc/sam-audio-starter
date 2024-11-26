@@ -561,8 +561,8 @@ SDCARD_SIMPLE_RESULT sdcard_write(sSDCARD *sdcard, void *data, uint32_t sector, 
         sector *= 512;
     }
 
-    /* Must send unaligned data through an aligned DMA buffer */
-    if ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) {
+    /* Must send unaligned data through an aligned buffer */
+    if ((uintptr_t)data & (sizeof(uint32_t) - 1)) {
         result = sdcard_writeUnaligned(sdcard, data, sector, count);
         return(result);
     }
@@ -657,7 +657,7 @@ SDCARD_SIMPLE_RESULT sdcard_read(sSDCARD *sdcard, void *data, uint32_t sector, u
     }
 
     /* Must send unaligned data through an aligned buffer */
-    if ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) {
+    if ((uintptr_t)data & (sizeof(uint32_t) - 1)) {
         result = sdcard_readUnaligned(sdcard, data, sector, count);
         return(result);
     }

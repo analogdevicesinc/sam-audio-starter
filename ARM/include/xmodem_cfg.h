@@ -12,8 +12,8 @@
 #ifndef _XMODEM_CFG_H
 #define _XMODEM_CFG_H
 
-#define DLY_1S      1000000
-#define MAXRETRANS  60
+#define DLY_1S        1000000
+#define MAXSYNCTRETRY 60
 
 #define XMODEM_1K
 

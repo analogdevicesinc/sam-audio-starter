@@ -17,6 +17,11 @@
 #include <stdarg.h>
 
 #include "adi_a2b_commandlist.h"
+#include "adi_a2b_cmdlist_cfg.h"
+
+#ifndef ADI_A2B_CMDLIST_MAX_NODES
+#define ADI_A2B_CMDLIST_MAX_NODES 20
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,6 +61,7 @@ typedef enum _ADI_A2B_CMDLIST_RESULT {
     ADI_A2B_CMDLIST_A2B_BUS_REVERSE_CONNECTED,
     ADI_A2B_CMDLIST_A2B_BAD_NODE,
     ADI_A2B_CMDLIST_A2B_NOT_LAST_NODE,
+    ADI_A2B_CMDLIST_RESPCYCS_ERROR,
     ADI_A2B_CMDLIST_END
 } ADI_A2B_CMDLIST_RESULT;
 
@@ -82,6 +88,10 @@ typedef enum _ADI_A2B_CMDLIST_SLOT_REMAP {
  *   Set param to 1 to to abort node configuration on error during
  *   partial discovery, 0 to ignore configuration errors (default).
  *
+ * ADI_A2B_CMDLIST_IOCTL_SET_RESPCYCS_FORMULA
+ *    Sets the RESPCYCS re-calculation formula.  Default is
+ *    RESPCYCS_FORMULA_UNKNOWN.
+ *
  * To set IOCTLs requiring boolean or integer values, cast the value to
  * a void *, i.e. (void *)1 or (void *)0
  ******************************************************************/
@@ -89,8 +99,28 @@ typedef enum _ADI_A2B_CMDLIST_IOCTL {
     ADI_A2B_CMDLIST_IOCTL_UNKNOWN = 0,
     ADI_A2B_CMDLIST_IOCTL_DISABLE_CLOCKS,
     ADI_A2B_CMDLIST_IOCTL_ENABLE_SNIFFING,
-    ADI_A2B_CMDLIST_IOCTL_ABORT_ON_ERROR
+    ADI_A2B_CMDLIST_IOCTL_ABORT_ON_ERROR,
+    ADI_A2B_CMDLIST_IOCTL_SET_RESPCYCS_FORMULA
 } ADI_A2B_CMDLIST_IOCTL;
+
+/*!****************************************************************
+ * @brief Response Cycles Formula
+ *
+ * Formula used to re-calculate response cycles.
+ *
+ * Only RESPCYCS_FORMULA_A is supported.  Setting RESPCYCS_FORMULA_B
+ * will result in an error.  When set, all node RESPCYCS will be
+ * re-calculated in adi_a2b_cmdlist_override().
+ *
+ * Default is RESPCYCS_FORMULA_UNKNOWN which uses RESPCYCS
+ * from the command script except for any RESPCYCS or sRESPCYCS
+ * specifically overridden in ADI_A2B_CMDLIST_OVERRIDE_INFO.
+ ******************************************************************/
+typedef enum _ADI_A2B_RESPCYCS_FORMULA {
+    RESPCYCS_FORMULA_UNKNOWN = 0,
+    RESPCYCS_FORMULA_A,
+    RESPCYCS_FORMULA_B
+} ADI_A2B_RESPCYCS_FORMULA;
 
 /*!****************************************************************
  * @brief Events
@@ -398,6 +428,8 @@ typedef struct _ADI_A2B_CMDLIST_SCAN_INFO {
     uint8_t SLOTFMT;      /**< Master SLOTFMT register value */
     bool DATCTL_valid;    /**< True if Master DATCTL was found */
     uint8_t DATCTL;       /**< Master DATCTL register value */
+    bool RESPCYCS_valid;  /**< True if Master RESPCYCS was found */
+    uint8_t RESPCYCS;     /**< Master RESPCYCS register value */
 } ADI_A2B_CMDLIST_SCAN_INFO;
 
 /*!****************************************************************
@@ -434,14 +466,34 @@ typedef struct _ADI_A2B_CMDLIST_OVERRIDE_INFO {
     bool DATCTL_override;
     /** Master DATCTL override value */
     uint8_t DATCTL;
+    /** True if master RESPCYCS should be overridden */
+    bool RESPCYCS_override;
+    /** Master RESPCYCS override value */
+    uint8_t RESPCYCS;
+    /** True if Slave DNSLOTS register should be overridden */
+    bool sBCDNSLOTS_override[ADI_A2B_CMDLIST_MAX_NODES];
+    /** Slave DNSLOTS override value */
+    uint8_t sBCDNSLOTS[ADI_A2B_CMDLIST_MAX_NODES];
+    /** True if Slave DNSLOTS register should be overridden */
+    bool sDNSLOTS_override[ADI_A2B_CMDLIST_MAX_NODES];
+    /** Slave DNSLOTS override value */
+    uint8_t sDNSLOTS[ADI_A2B_CMDLIST_MAX_NODES];
     /** True if Slave LDNSLOTS register should be overridden */
-    bool LDNSLOTS_override;
+    bool sLDNSLOTS_override[ADI_A2B_CMDLIST_MAX_NODES];
     /** Slave LDNSLOTS override value */
-    uint8_t LDNSLOTS;
+    uint8_t sLDNSLOTS[ADI_A2B_CMDLIST_MAX_NODES];
+    /** True if Slave UPSLOTS register should be overridden */
+    bool sUPSLOTS_override[ADI_A2B_CMDLIST_MAX_NODES];
+    /** Slave UPSLOTS override value */
+    uint8_t sUPSLOTS[ADI_A2B_CMDLIST_MAX_NODES];
     /** True if Slave LUPSLOTS register should be overridden */
-    bool LUPSLOTS_override;
+    bool sLUPSLOTS_override[ADI_A2B_CMDLIST_MAX_NODES];
     /** Slave LUPSLOTS override value */
-    uint8_t LUPSLOTS;
+    uint8_t sLUPSLOTS[ADI_A2B_CMDLIST_MAX_NODES];
+    /** True if Slave RESPCYCS should be overridden */
+    bool sRESPCYCS_override[ADI_A2B_CMDLIST_MAX_NODES];
+    /** Slave RESPCYCS (master DISCVRY) override value */
+    uint8_t sRESPCYCS[ADI_A2B_CMDLIST_MAX_NODES];
 } ADI_A2B_CMDLIST_OVERRIDE_INFO;
 
 /*!****************************************************************
@@ -701,12 +753,12 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_get_node_info(
  * The type of operation will be inferred from the 'out' and 'in'
  * pointers as follows:
  *
- *   'out'   'in'    Operation
+ *   'out'   'io'    Operation
  *   ------  ------  --------------
  *   NULL    SET     Read
  *   SET     NULL    Write
- *   SET     SET     Write/Read  (io == true)
- *   SET     SET     Write/Write (io == false)
+ *   SET     SET     Write/Read  (ioDir == true)
+ *   SET     SET     Write/Write (ioDir == false)
  *
  * This function is thread safe if the underlying TWI callbacks
  * are thread safe.
