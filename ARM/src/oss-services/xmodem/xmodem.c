@@ -29,6 +29,11 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **********************************************************************************************************************/
 
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
+
 /* this code needs standard functions memcpy() and memset()
    and input/output functions _inbyte() and _outbyte().
 
@@ -131,9 +136,10 @@ int XmodemReceive(StoreChunkType storeChunk, void *ctx, int destsz, int crc, int
   unsigned char packetno = mode ? 0 : 1;
   int i, c, len = 0;
   int retry, retrans = MAXRETRANS;
+  int sync_retry = MAXSYNCTRETRY;
 
   for(;;) {
-    for( retry = 0; retry < 16; ++retry) {
+    for( retry = 0; retry < sync_retry; ++retry) {
       if (trychar) _outbyte(trychar, ctx);
       if ((c = _inbyte((DLY_1S)<<1, ctx)) >= 0) {
         switch (c) {
@@ -164,7 +170,7 @@ int XmodemReceive(StoreChunkType storeChunk, void *ctx, int destsz, int crc, int
       }
     }
     if (trychar == 'G') { trychar = 'C'; crc = 1; continue; }
-    else if (trychar == 'C') { trychar = NAK; crc = 0; continue; }
+    //else if (trychar == 'C') { trychar = NAK; crc = 0; sync_retry = 2; continue; }
     flushinput(_inbyte, ctx);
     _outbyte(CAN, ctx);
     _outbyte(CAN, ctx);
@@ -227,7 +233,7 @@ int XmodemTransmit(FetchChunkType fetchChunk, void *ctx, int srcsz, int onek, in
   int retry;
 
   for(;;) {
-    for( retry = 0; retry < 16; ++retry) {
+    for( retry = 0; retry < MAXSYNCTRETRY; ++retry) {
       if ((c = _inbyte((DLY_1S)<<1, ctx)) >= 0) {
         switch (c) {
           case 'G':

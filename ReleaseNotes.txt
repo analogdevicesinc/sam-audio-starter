@@ -1,42 +1,27 @@
 Hardware         Software                          Version
 ---------------  --------------------------------- -------
-ADZS-SC589-MINI  SAM Audio Starter with Networking 3.0.0
+ADZS-SC589-MINI  SAM Audio Starter with Networking 3.1.0
 
 Below is a list of the major changes from the baseline.
 Note that minor/refactor changes will not be listed. 
 
 New Features
 ------------
-FAESWPROJ-102  - Move CPU reporting to syslog
-FAESWPROJ-103  - Add SAE info to mem heap command
-FAESWPROJ-98   - Update reusable components to support SC598
-FAESWPROJ-132  - Enable MDNS in LWIP to use device name instead of IP addresses
-FAESWPROJ-195  - Update env.sh to account for CCES 3.x or greater
-FAESWPROJ-184  - Alphabetize shell help output
-No ticket      - Increase max SD Card clock speed to 50MHz
-No ticket      - Move audio routing to ARM
-No ticket      - Add sharc0, sharc1 audio routing for algorithm insertion
-No ticket      - Add shell send command (YMODEM)
-No ticket      - Update XMODEM functionality
-No ticket      - Add timestamp feature (for use in date shell command)
-No ticket      - Add shell fdump command
-No ticket      - Add shell dump command
-No ticket      - Add shell vu meters support
-No ticket      - Add shell eth command for mdns support
-No ticket      - Increase maximum number of wav channels to 64
-No ticket      - Change default ethernet IP address
-No ticket      - Add support for A2B AD243x transceivers
+FAESWPROJ-202  - Support overriding of A2B response cycle
+No ticket      - Improve XMODEM retry handling
+
 
 Bug Fixes
 ---------
-FAESWPROJ-124 - Fix incorrect CPU report when optimizations are enabled
-FAESWPROJ-161 - XMODEM corrupts files sent by the recv command
-FAESWPROJ-194 - No audio on v1.5 hardware
+FAESWPROJ-234 - Wav audio distortion on higher channel count
+FAESWPROJ-241 - File handle corruption in fs-dev module
+No ticket     - Typing route 'celar' instead of 'clear', doesn't produce error
+
 
 Known Issues
 -------------
-FAESWPROJ-234 - Wav audio distortion on higher channel count
 FAESWPROJ-236 - No response from shell after disconnect/reconnect when VU is active
+FAESWPROJ-248 - VU Meters don't display in TeraTerm v5.0 or greater
 
 Compatibility Issues
 --------------------

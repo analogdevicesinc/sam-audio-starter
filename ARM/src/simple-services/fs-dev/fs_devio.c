@@ -22,6 +22,12 @@
 #include <device_int.h>
 #endif
 
+/* Kernel includes. */
+#ifdef FREE_RTOS
+#include "FreeRTOS.h"
+#include "semphr.h"
+#endif
+
 #include "fs_dev_adi_modes.h"
 
 #include "fs_devman_cfg.h"
@@ -50,11 +56,23 @@ typedef struct _FS_DEVIO_FD {
 static FS_DEVIO_FD DEVIO_FD[FS_DEVIO_MAX_FDS];
 static FS_DEVIO_INIT *DEVIO_INIT = NULL;
 
+#ifdef FREE_RTOS
+static SemaphoreHandle_t _FD_LOCK;
+#define FD_LOCK() xSemaphoreTake(_FD_LOCK, portMAX_DELAY);
+#define FD_UNLOCK() xSemaphoreGive(_FD_LOCK);
+#else
+#define FD_LOCK()
+#define FD_UNLOCK()
+#endif
+
 /***********************************************************************
  * Init
  ***********************************************************************/
 static int _fs_devio_init(struct DevEntry *deventry)
 {
+#ifdef FREE_RTOS
+    _FD_LOCK = xSemaphoreCreateMutex();
+#endif
     memset(&DEVIO_FD, 0, sizeof(DEVIO_FD));
     return _DEV_IS_THREADSAFE;
 }
@@ -77,15 +95,13 @@ static int _fs_devio_open(const char *name, int mode)
         return(-1);
     }
 
+    FD_LOCK()
     fd = -1; fdf = NULL;
     for (i = 0; i < FS_DEVIO_MAX_FDS; i++) {
         if (DEVIO_FD[i].open == false) {
             fd = i; fdf = &DEVIO_FD[i];
             break;
         }
-    }
-    if (!fdf) {
-        return(-1);
     }
 
     /* Standardize the Cortex A5 implementation mode flags */
@@ -125,16 +141,20 @@ static int _fs_devio_open(const char *name, int mode)
     mode += 1;
 #endif
 
-    baseFd = devInfo->dev->fsd_open(fname, 0, mode, devInfo);
-    if (baseFd < 0) {
-        return(-1);
+    if (fdf) {
+        baseFd = devInfo->dev->fsd_open(fname, 0, mode, devInfo);
+        if (baseFd >= 0) {
+            fdf->open = true;
+            fdf->baseFd = baseFd;
+            fdf->devInfo = devInfo;
+            fd = i + FS_DEVIO_FD_OFFSET;
+        } else {
+            fd = -1;
+        }
     }
+    FD_UNLOCK()
 
-    fdf->open = true;
-    fdf->baseFd = baseFd;
-    fdf->devInfo = devInfo;
-
-    return(fd + FS_DEVIO_FD_OFFSET);
+    return(fd);
 }
 
 /***********************************************************************
@@ -157,9 +177,11 @@ static int _fs_devio_close(int fd)
         return(-1);
     }
 
-    fdf->open = false;
-
     devInfo->dev->fsd_close(fdf->baseFd, devInfo);
+
+    FD_LOCK()
+    fdf->open = false;
+    FD_UNLOCK()
 
     return(0);
 }

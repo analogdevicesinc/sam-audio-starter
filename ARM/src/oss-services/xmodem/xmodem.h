@@ -29,6 +29,10 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  **********************************************************************************************************************/
 
+/*
+ * This code has been modified by Analog Devices, Inc.
+ */
+
 #ifndef XMODEM_H_
 #define XMODEM_H_
 
@@ -49,6 +53,10 @@
 
 #ifndef MAXRETRANS
 #define MAXRETRANS 25
+#endif
+
+#ifndef MAXSYNCTRETRY
+#define MAXSYNCTRETRY 16
 #endif
 
 /** End Config Section ************************************************************************************************/

@@ -467,7 +467,7 @@ const char shell_help_i2c[] = "<i2c_port> <i2c_addr> <mem_addr> <wdata> <length>
   "  wdata - Comma separated string of bytes to write (i.e. \"1,0x02,3\")\n"
   "          Empty quotes for read only.\n"
   "  length - Number of bytes to read.  Zero for write only.\n"
-  "  addr_len - Number of address bytes (default 1)\n";
+  "  addr_len - Number of address bytes: 1 = 1-byte address length, 2 = 2-byte address length (default 1)\n";
 const char shell_help_summary_i2c[] = "Executes an I2C write/read transaction";
 
 void shell_i2c(SHELL_CONTEXT *ctx, int argc, char **argv)
@@ -540,8 +540,10 @@ void shell_i2c(SHELL_CONTEXT *ctx, int argc, char **argv)
 
         /* Print header if reading */
         if (length > 0) {
-            printf ( "I2C Device (0x%02x): addr 0x%04x, bytes %d (0x%02x)\n",
-                i2c_addr, reg_addr, length, length);
+            printf ( "I2C Device (0x%02x): addr 0x%04x, bytes read %d (0x%02x), ",
+                i2c_addr, reg_addr, length, length );
+
+            printf ( (addrLength == 2) ? "2-byte address length\n" : "1-byte address length\n" );
         }
 
         /* Do write/read of peripheral at the specified address */
@@ -1169,6 +1171,13 @@ void shell_discover(SHELL_CONTEXT *ctx, int argc, char **argv)
 
         /* Disable A2B IRQ processing */
         a2b_irq_disable(context, A2B_BUS_NUM_1);
+
+        /* Reset the transceiver and delay */
+        static uint8_t AD2425_RESET[] = { 0x12, 0x84};
+        cmdListResult = adi_a2b_cmdlist_node_twi_transfer(
+            list, -1, false, false, 0,
+            AD2425_RESET, sizeof(AD2425_RESET), NULL, 0, false);
+        cmdListResult = adi_a2b_cmdlist_delay(list, 100);
 
         /* Run the command list */
         cmdListResult = adi_a2b_cmdlist_execute(list, &execInfo);
@@ -2368,6 +2377,10 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
                 route->mix = 0;
                 taskEXIT_CRITICAL();
             }
+        }
+        else {
+            printf("Invalid input. Type 'help route' for more details.\n");
+            return;
         }
     }
 

@@ -1,4 +1,4 @@
-nafae-sam-audio-starter 3.0.0
+nafae-sam-audio-starter 3.1.0
 Copyright 2024 Analog Devices, Inc.
 
 The main license for this software is identified in the LICENSE file.
@@ -7,25 +7,60 @@ This product includes third party IP identified below:
 
 Components:
 
+
 antirez/kilo 0.0.1 : BSD 2-clause "Simplified" License
+
+
 BAN-AI-Communications / xmodem 966d8fe : BSD 3-clause "New" or "Revised" License
+
+
 chansen / c-timestamp b205c40 : BSD 2-clause "Simplified" License
+
+
 CLD USB Audio 2.0 Library v1.10 : ADI-CLD License
+
+
 elua's elua v0.9 : MIT License
+
+
 FatFs Module R0.14b : FatFs License
+
+
 FreeBSD release/12.4.0 : BSD 2-clause "Simplified" License
+
+
 FreeRTOS Real Time Kernel V10.4.6 : MIT License
+
+
 libtelnet 0.23 : Public Domain
+
+
 linenoise 1.0 : BSD 2-clause "Simplified" License
+
+
 lwIP 2.1.2 : BSD 3-clause "New" or "Revised" License
+
+
 menie.org/georges/crc16 1.0 : BSD 3-clause "New" or "Revised" License
+
+
 mpaland/printf v3.1.4 : MIT License
+
+
 pellepl/spiffs 0.3.7 : MIT License
+
+
 PortAudio 190600.20161030 : MIT License
+
+
 rhempel/umm_malloc v1.0.1 : MIT License
+
+
 Yxml - A small, fast and correct* XML parser master-20151027 : MIT License
 
+
 Licenses:
+
 
 --------------------------------------------------------------------------------
 antirez/kilo 0.0.1
@@ -63,6 +98,8 @@ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT
 STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
+
+
 
 
 --------------------------------------------------------------------------------
@@ -106,6 +143,8 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVE
 IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+
+
 --------------------------------------------------------------------------------
 chansen / c-timestamp b205c40
 License: BSD 2-clause "Simplified" License
@@ -145,6 +184,8 @@ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 
 
+
+
 --------------------------------------------------------------------------------
 CLD USB Audio 2.0 Library v1.10
 License: ADI-CLD License
@@ -162,6 +203,8 @@ Loop Design LLC extends you a royalty-free right to use, reproduce and
 distribute this source file as well as executable files created using
 this source file for use with Analog Devices SC5xx family processors
 only. Nothing else gives you the right to use this source file.
+
+
 
 
 
@@ -199,6 +242,8 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE
 
 
+
+
 --------------------------------------------------------------------------------
 FatFs Module R0.14b
 License: FatFs License
@@ -224,6 +269,8 @@ Copyright (C) 2013, ChaN, all right reserved.
     non-profit or commercial products UNDER YOUR RESPONSIBILITY.
 
   * Redistributions of source code must retain the above copyright notice.
+
+
 
 
 --------------------------------------------------------------------------------
@@ -264,6 +311,8 @@ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
 DAMAGE.
 
 
+
+
 --------------------------------------------------------------------------------
 FreeRTOS Real Time Kernel V10.4.6
 License: MIT License
@@ -298,6 +347,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 
 
+
+
 --------------------------------------------------------------------------------
 libtelnet 0.23
 License: Public Domain
@@ -309,6 +360,8 @@ The source code for this component has been modified by Analog Devices.
 
 License: Public Domain
 Public domain code is not subject to any license.
+
+
 
 
 
@@ -350,6 +403,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE
 
 
+
+
 --------------------------------------------------------------------------------
 lwIP 2.1.2
 License: BSD 3-clause "New" or "Revised" License
@@ -386,6 +441,8 @@ Redistribution and use in source and binary forms, with or without modification,
  CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
  IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
  OF SUCH DAMAGE
+
+
 
 
 --------------------------------------------------------------------------------
@@ -429,6 +486,8 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVE
 IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+
+
 --------------------------------------------------------------------------------
 mpaland/printf v3.1.4
 License: MIT License
@@ -463,6 +522,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 
 
+
+
 --------------------------------------------------------------------------------
 pellepl/spiffs 0.3.7
 License: MIT License
@@ -494,6 +555,8 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
+
 
 
 --------------------------------------------------------------------------------
@@ -533,6 +596,8 @@ Permission is hereby granted, free of charge, to any person obtaining
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
 
 
+
+
 --------------------------------------------------------------------------------
 rhempel/umm_malloc v1.0.1
 License: MIT License
@@ -567,6 +632,8 @@ AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 
+
+
 --------------------------------------------------------------------------------
 Yxml - A small, fast and correct* XML parser master-20151027
 License: MIT License
@@ -598,4 +665,5 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE
+
 

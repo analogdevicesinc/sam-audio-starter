@@ -11,9 +11,9 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <math.h>
 
 #include "adi_a2b_commandlist.h"
-#include "adi_a2b_cmdlist_cfg.h"
 #include "adi_a2b_cmdlist.h"
 
 #ifdef FREE_RTOS
@@ -28,10 +28,6 @@
 
 #ifndef ADI_A2B_CMDLIST_MAX_LISTS
 #define ADI_A2B_CMDLIST_MAX_LISTS 1
-#endif
-
-#ifndef ADI_A2B_CMDLIST_MAX_NODES
-#define ADI_A2B_CMDLIST_MAX_NODES 20
 #endif
 
 #ifndef ADI_A2B_CMDLIST_MEMSET
@@ -52,6 +48,7 @@
 #define     AD24xx_REG_PRODUCT                 0x03
 #define     AD24xx_REG_VERSION                 0x04
 #define     AD24xx_REG_SWCTL                   0x09
+#define     AD24xx_REG_BCDNSLOTS               0x0A
 #define     AD24xx_REG_LDNSLOTS                0x0B
 #define     AD24xx_REG_LUPSLOTS                0x0C
 #define     AD24xx_REG_DNSLOTS                 0x0D
@@ -117,6 +114,9 @@ typedef struct _ADI_A2B_CMDLIST_PRIV_NODE_INFO {
     uint32_t timeoutMs;
     uint8_t UPSLOTS;
     uint8_t LUPSLOTS;
+    uint8_t BCDNSLOTS;
+    uint8_t DNSLOTS;
+    uint8_t LDNSLOTS;
     bool disableClocks;
 } ADI_A2B_CMDLIST_PRIV_NODE_INFO;
 
@@ -132,6 +132,7 @@ typedef struct _ADI_A2B_CMDLIST {
     uint8_t cmdListMasterAddr;
     uint8_t nodesDiscovered;
     uint8_t nodesScanned;
+    uint8_t nodeIdx;
     bool faultDetected;
     uint8_t faultNode;
     ADI_A2B_CMDLIST_NODE_INFO nodeInfo[ADI_A2B_CMDLIST_MAX_NODES];
@@ -140,11 +141,16 @@ typedef struct _ADI_A2B_CMDLIST {
     uint8_t SLOTFMT;
     uint8_t DATCTL;
     uint8_t UPSLOTS;
+    uint8_t LUPSLOTS;
+    uint8_t DNSLOTS;
+    uint8_t LDNSLOTS;
     uint8_t I2SCFG;
+    uint8_t I2SGCFG;
     uint8_t I2STXOFFSET;
     bool scanned;
     bool enableSniffing;
     bool abortOnError;
+    ADI_A2B_RESPCYCS_FORMULA respcycsFormula;
 } ADI_A2B_CMDLIST;
 
 /* ADI Command-list independent command data structure */
@@ -182,7 +188,7 @@ const ADI_A2B_CMDLIST_RESULT_STRING ADI_A2B_CMDLIST_RESULT_STRINGS[] =  {
     { ADI_A2B_CMDLIST_A2B_BUS_NEG_SHORT_TO_VBAT, "NEGATIVE WIRE SHORTED TO VBAT" },
     { ADI_A2B_CMDLIST_A2B_BUS_SHORT_TOGETHER, "WIRES SHORTED TOGETHER" },
     { ADI_A2B_CMDLIST_A2B_BUS_OPEN_OR_WRONG_PORT, "WIRE OPEN OR WRONG PORT" },
-    {ADI_A2B_CMDLIST_A2B_BUS_REVERSED_OR_OPEN, "REVERSED WIRES OR WIRE OPEN" },
+    { ADI_A2B_CMDLIST_A2B_BUS_REVERSED_OR_OPEN, "REVERSED WIRES OR WIRE OPEN" },
     { ADI_A2B_CMDLIST_A2B_BUS_REVERSED_OR_WRONG_PORT, "REVERSED WIRES OR WRONG PORT" },
     { ADI_A2B_CMDLIST_A2B_BUS_INDETERMINATE_FAULT, "INDETERMINATE FAULT" },
     { ADI_A2B_CMDLIST_A2B_BUS_UNKNOWN_FAULT, "UNKNOWN FAULT DETECTED" },
@@ -191,6 +197,9 @@ const ADI_A2B_CMDLIST_RESULT_STRING ADI_A2B_CMDLIST_RESULT_STRINGS[] =  {
     { ADI_A2B_CMDLIST_A2B_BUS_SHORT_TO_VBAT, "CABLE SHORT TO VBAT" },
     { ADI_A2B_CMDLIST_A2B_BUS_DISCONNECT_OR_OPEN_CIRCUIT, "CABLE DISCONNECTED OR OPEN" },
     { ADI_A2B_CMDLIST_A2B_BUS_REVERSE_CONNECTED, "CABLE REVERSE CONNECTED" },
+    { ADI_A2B_CMDLIST_A2B_BAD_NODE, "BAD NODE" },
+    { ADI_A2B_CMDLIST_A2B_NOT_LAST_NODE, "NOT LAST NODE" },
+    { ADI_A2B_CMDLIST_RESPCYCS_ERROR, "RESPCYCS CALCULATION ERROR" },
     { ADI_A2B_CMDLIST_END, "END OF COMMAND LIST" },
     { (ADI_A2B_CMDLIST_RESULT)0, NULL }
 };
@@ -200,6 +209,7 @@ static void adi_a2b_cmdlist_reset(ADI_A2B_CMDLIST *list)
     list->cmdPtr = list->cmdList;
     list->cmdIdx = 0;
     list->cmdLine = 0;
+    list->nodeIdx = 0;
 }
 
 static void adi_a2b_cmdlist_discover_restart(ADI_A2B_CMDLIST *list)
@@ -554,7 +564,25 @@ static ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_next(
             case AD24xx_REG_I2SCFG:
                 _val = list->oi.I2SCFG_override ? list->oi.I2SCFG : _val;
                 break;
+            case AD24xx_REG_DNSLOTS:
+                _val = list->oi.DNSLOTS_override ? list->oi.DNSLOTS : _val;
+                break;
+            case AD24xx_REG_UPSLOTS:
+                _val = list->oi.UPSLOTS_override ? list->oi.UPSLOTS : _val;
+                break;
+            case AD24xx_REG_SLOTFMT:
+                _val = list->oi.SLOTFMT_override ? list->oi.SLOTFMT : _val;
+                break;
+            case AD24xx_REG_RESPCYCS:
+                _val = list->oi.RESPCYCS_override ? list->oi.RESPCYCS : _val;
+                break;
+            case AD24xx_REG_DISCVRY:
+                _val = list->oi.sRESPCYCS_override[list->nodeIdx] ?
+                           list->oi.sRESPCYCS[list->nodeIdx] : _val;
+                list->nodeIdx++;
+                break;
             case AD24xx_REG_DATCTL:
+                _val = list->oi.DATCTL_override ? list->oi.DATCTL : _val;
                 _val |= list->enableSniffing ? AD24xx_BITM_DATCTL_ENDSNIFF : 0;
                 break;
             default:
@@ -579,11 +607,20 @@ static ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_next(
                     _mode = ADI_A2B_CMDLIST_BLOCK_ACCESS;
                 }
                 break;
+            case AD24xx_REG_BCDNSLOTS:
+                _val = list->oi.sBCDNSLOTS_override[node] ? list->oi.sBCDNSLOTS[node] : _val;
+                break;
+            case AD24xx_REG_DNSLOTS:
+                _val = list->oi.sDNSLOTS_override[node] ? list->oi.sDNSLOTS[node] : _val;
+                break;
             case AD24xx_REG_LDNSLOTS:
-                _val = list->oi.LDNSLOTS_override ? list->oi.LDNSLOTS : _val;
+                _val = list->oi.sLDNSLOTS_override[node] ? list->oi.sLDNSLOTS[node] : _val;
+                break;
+            case AD24xx_REG_UPSLOTS:
+                _val = list->oi.sUPSLOTS_override[node] ? list->oi.sUPSLOTS[node] : _val;
                 break;
             case AD24xx_REG_LUPSLOTS:
-                _val = list->oi.LUPSLOTS_override ? list->oi.LUPSLOTS : _val;
+                _val = list->oi.sLUPSLOTS_override[node] ? list->oi.sLUPSLOTS[node] : _val;
                 break;
             default:
                 break;
@@ -798,12 +835,169 @@ static ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_irq_poll(
     return(result);
 }
 
+#ifdef ADI_A2B_CMDLIST_RESPCYCS_OVERRIDE
+static uint8_t find_min(uint8_t *arr, size_t size)
+{
+    uint8_t min = arr[--size];
+    while (size) {
+        min = (arr[--size] < min) ? arr[size] : min;
+    }
+    return(min);
+}
+
+static uint8_t find_max(uint8_t *arr, size_t size)
+{
+    uint8_t max = arr[--size];
+    while (size) {
+        max = (arr[--size] > max) ? arr[size] : max;
+    }
+    return(max);
+}
+
+static uint8_t SLOTFMT_to_size(uint8_t fmt)
+{
+    uint8_t size;
+    size = 8 + ((fmt & 0x07) * 4);
+    if ((size == 24) && (fmt & 0x8)) {
+        size += 6;
+    } else if ((size == 32) && (fmt & 0x8)) {
+        size += 7;
+    } else {
+        size += 1;
+    }
+    return(size);
+}
+
+/* Master override register select */
+#define OVERRIDE(reg) \
+    (oi->reg##_override ? oi->reg : list->reg)
+
+/* Slave override register select*/
+#define sOVERRIDE(reg,node) \
+    (oi->s##reg##_override[node] ? oi->s##reg[node] : ni->reg)
+
+static ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_respcycs_override(ADI_A2B_CMDLIST *list,
+    ADI_A2B_CMDLIST_OVERRIDE_INFO *oi)
+{
+    ADI_A2B_CMDLIST_RESULT result = ADI_A2B_CMDLIST_SUCCESS;
+    ADI_A2B_CMDLIST_PRIV_NODE_INFO *ni;
+    unsigned dnSlotActivity;
+    unsigned upSlotActivity;
+    uint8_t RESPCYCS_DN[ADI_A2B_CMDLIST_MAX_NODES];
+    uint8_t RESPCYCS_UP[ADI_A2B_CMDLIST_MAX_NODES];
+    uint8_t RESPOFFS, maxRespCycsDn, minRespCycsUp;
+    uint8_t dnSize, upSize, dnSlots, upSlots;
+    uint8_t reg, i;
+
+    /* Bypass if not requested */
+    if (list->respcycsFormula == RESPCYCS_FORMULA_UNKNOWN) {
+        return(ADI_A2B_CMDLIST_SUCCESS);
+    }
+
+    /* Do not support RESPCYCS_FORMULA_B */
+    if (list->respcycsFormula == RESPCYCS_FORMULA_B) {
+        return(ADI_A2B_CMDLIST_RESPCYCS_ERROR);
+    }
+
+    /* Make sure the list has been scanned */
+    if (!list->scanned) {
+        result = adi_a2b_cmdlist_scan(list, NULL);
+    }
+
+    /* Calculate dn and up sizes */
+    reg = OVERRIDE(SLOTFMT);
+    dnSize = SLOTFMT_to_size((reg & 0x0f) >> 0);
+    upSize = SLOTFMT_to_size((reg & 0xf0) >> 4);
+
+    /* Calculate Main Node Response Offset */
+    reg = OVERRIDE(I2SGCFG);
+    if ((reg & 0x07) == 0) {
+        RESPOFFS = (reg & 0x10) ? 238 : 245;
+    } else if ((reg & 0x07) == 1) {
+        RESPOFFS = (reg & 0x10) ? 245 : 248;
+    } else {
+        RESPOFFS = 248;
+    }
+
+    /*
+     * Calculate the up and dn slot activity on the "A" side of
+     * the node.  In the downstream direction, the "A" side is the "B" side
+     * activity of the upstream node.  On the upstream side, the "A" side
+     * activity is of the node itself.
+     */
+    for (i = 0; i < list->nodesScanned; i++) {
+
+        /* Calculate node dn slot activity */
+        if (i == 0) {
+            /* Use the master node for the first slave */
+            dnSlots = OVERRIDE(DNSLOTS);
+        } else {
+            /* Calculate previous node's dn slots */
+            ni = &list->privNodeInfo[i-1];
+            reg = sOVERRIDE(LDNSLOTS, i);
+            dnSlots = (reg & 0x3f) + sOVERRIDE(DNSLOTS, i);
+            dnSlots += (reg & 0x80) ? 0 : sOVERRIDE(BCDNSLOTS, i);
+        }
+        dnSlotActivity = (unsigned)dnSlots * (unsigned)dnSize;
+
+        /* Calculate node up slot activity */
+        ni = &list->privNodeInfo[i];
+        upSlots = sOVERRIDE(UPSLOTS, i) + sOVERRIDE(LUPSLOTS, i);
+        upSlotActivity = (unsigned)upSlots * (unsigned)upSize;
+
+        /* Calculate node DN and UP respcycs */
+        switch (list->respcycsFormula) {
+            case RESPCYCS_FORMULA_A:
+                RESPCYCS_DN[i] =
+                    ceil(((64.0+(double)dnSlotActivity)/4.0)+4.0*(double)i+2.0);
+                RESPCYCS_UP[i] =
+                    ceil((double)RESPOFFS-(((64.0+(double)upSlotActivity)/4.0)+1.0));
+                break;
+            case RESPCYCS_FORMULA_B:
+                /* Not supported */
+                return(ADI_A2B_CMDLIST_RESPCYCS_ERROR);
+                break;
+            default:
+                break;
+        }
+    }
+
+    /* Find dn max and up min */
+    maxRespCycsDn = find_max(RESPCYCS_DN, list->nodesScanned);
+    minRespCycsUp = find_min(RESPCYCS_UP, list->nodesScanned);
+
+    /* Calculate final RESPCYCS */
+    oi->RESPCYCS_override = true;
+    oi->RESPCYCS = ((unsigned)maxRespCycsDn + (unsigned)minRespCycsUp) / 2;
+
+    for (i = 0; i < list->nodesScanned; i++) {
+        switch (list->respcycsFormula) {
+            case RESPCYCS_FORMULA_A:
+                oi->sRESPCYCS_override[i] = true;
+                oi->sRESPCYCS[i] = oi->RESPCYCS-4*i;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return(ADI_A2B_CMDLIST_SUCCESS);
+}
+#endif
+
 ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_override(
     ADI_A2B_CMDLIST *list, ADI_A2B_CMDLIST_OVERRIDE_INFO *oi)
 {
     if ((list == NULL) || (oi == NULL)) {
         return(ADI_A2B_CMDLIST_ERROR);
     }
+
+#ifdef ADI_A2B_CMDLIST_RESPCYCS_OVERRIDE
+    ADI_A2B_CMDLIST_RESULT result = adi_a2b_cmdlist_respcycs_override(list, oi);
+    if (result != ADI_A2B_CMDLIST_SUCCESS) {
+        return(result);
+    }
+#endif
 
     ADI_A2B_CMDLIST_MEMCPY(&list->oi, oi, sizeof(list->oi));
 
@@ -890,18 +1084,21 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_scan(
                             scan->I2SGCFG = val;
                             scan->I2SGCFG_valid = true;
                         }
+                        list->I2SGCFG = val;
                         break;
                     case AD24xx_REG_I2SCFG:
                         if (scan) {
                             scan->I2SCFG = val;
                             scan->I2SCFG_valid = true;
                         }
+                        list->I2SCFG = val;
                         break;
                     case AD24xx_REG_DNSLOTS:
                         if (scan) {
                             scan->DNSLOTS = val;
                             scan->DNSLOTS_valid = true;
                         }
+                        list->DNSLOTS = val;
                         break;
                     case AD24xx_REG_UPSLOTS:
                         if (scan) {
@@ -934,12 +1131,21 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_scan(
                         list->privNodeInfo[nodeIdx++].respCycs = val;
                         irqPending = ADI_A2B_CMDLIST_IRQ_DISCOVERY_PENDING;
                         break;
+                    case AD24xx_REG_RESPCYCS:
+                        if (scan) {
+                            scan->RESPCYCS = val;
+                            scan->RESPCYCS_valid = true;
+                        }
+                        break;
                     default:
                         break;
                 }
             }
 
-            /* Track subnode registers for partial rediscovery */
+            /*
+             * Track subnode registers for partial rediscovery and
+             * RESPCYCS calculations.
+             */
             if (mode == ADI_A2B_CMDLIST_SLAVE_ACCESS) {
                 switch (reg) {
                     case AD24xx_REG_UPSLOTS:
@@ -947,6 +1153,15 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_scan(
                         break;
                     case AD24xx_REG_LUPSLOTS:
                         list->privNodeInfo[nodeAddr].LUPSLOTS = val;
+                        break;
+                    case AD24xx_REG_BCDNSLOTS:
+                        list->privNodeInfo[nodeAddr].BCDNSLOTS = val;
+                        break;
+                    case AD24xx_REG_DNSLOTS:
+                        list->privNodeInfo[nodeAddr].DNSLOTS = val;
+                        break;
+                    case AD24xx_REG_LDNSLOTS:
+                        list->privNodeInfo[nodeAddr].LDNSLOTS = val;
                         break;
                     default:
                         break;
@@ -2154,13 +2369,20 @@ ADI_A2B_CMDLIST_RESULT adi_a2b_cmdlist_ioctl(ADI_A2B_CMDLIST *list, int8_t node,
                 result = ADI_A2B_CMDLIST_ERROR;
                 break;
             }
-            list->privNodeInfo[node].disableClocks = param;
+            list->privNodeInfo[node].disableClocks = (bool)param;
             break;
         case ADI_A2B_CMDLIST_IOCTL_ENABLE_SNIFFING:
-            list->enableSniffing = param;
+            list->enableSniffing = (bool)param;
             break;
         case ADI_A2B_CMDLIST_IOCTL_ABORT_ON_ERROR:
-            list->abortOnError = param;
+            list->abortOnError = (bool)param;
+            break;
+        case ADI_A2B_CMDLIST_IOCTL_SET_RESPCYCS_FORMULA:
+            if ((ADI_A2B_RESPCYCS_FORMULA)param == RESPCYCS_FORMULA_A) {
+                list->respcycsFormula = RESPCYCS_FORMULA_A;
+            } else {
+                result = ADI_A2B_CMDLIST_RESPCYCS_ERROR;
+            }
             break;
         default:
             result = ADI_A2B_CMDLIST_ERROR;
