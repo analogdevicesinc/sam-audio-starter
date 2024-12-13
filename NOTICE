@@ -359,7 +359,17 @@ The source code for this component has been modified by Analog Devices.
 
 
 License: Public Domain
-Public domain code is not subject to any license.
+libtelnet is released to the public domain:
+ 
+The author or authors of this code dedicate any and all copyright
+interest in this code to the public domain. We make this dedication
+for the benefit of the public at large and to the detriment of our
+heirs and successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+code under copyright law.
+ 
+-- Sean Middleditch <sean@sourcemud.org>
+-- Jack Kelly <endgame.dos@gmail.com>
 
 
 
