@@ -55,6 +55,7 @@
 #define MEM_LIBC_MALLOC                 1
 #define mem_clib_malloc                 umm_malloc
 #define mem_clib_free                   umm_free
+#define mem_clib_calloc                 umm_calloc
 #define MEMP_MEM_MALLOC                 1
 
 /* Misc configs */

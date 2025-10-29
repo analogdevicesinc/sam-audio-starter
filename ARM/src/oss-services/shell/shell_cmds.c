@@ -26,6 +26,8 @@
 #include "xmodem.h"
 #include "util.h"
 #include "clock_domain.h"
+#include "uart_stdio.h"
+#include "_getopt.h"
 
 #ifdef printf
 #undef printf
@@ -130,6 +132,123 @@ static int fsVolOK(SHELL_CONTEXT *ctx, APP_CONTEXT *context, char *fs)
     return INVALID_FS;
 }
 
+static bool encodeUtf8(SHELL_CONTEXT *ctx, long int codepoint, char * buf)
+{
+    char u, v, w, x, y, z;
+    bool ok = true;
+
+    if(buf != NULL) {
+        if(codepoint > 0){
+            if(codepoint <= 0x7FU) {
+                /* Input format: 0yyyzzzz */
+                /* Output format: 0yyyzzzz */
+                buf[0] = (char) codepoint;
+                buf[1] = 0;
+            } else if(codepoint <= 0x7FFU) {
+                /* Input format: 00000xxx yyyyzzzz */
+                x = (codepoint & 0x700U) >> 8;
+                y = (codepoint & 0x0F0U) >> 4;
+                z = codepoint & 0x0FU;
+                /* Output format: 110xxxyy 10yyzzzz */
+                buf[0] = 0xC0 | (x << 2) | (y >> 2);
+                buf[1] = 0x80 | ((y & 0x03) << 4) | z;
+                buf[2] = 0;
+            } else if(codepoint <= 0xFFFFU) {
+                /* Input format: wwwwxxxx yyyyzzzz */
+                w = (codepoint & 0xF000U) >> 12;
+                x = (codepoint & 0x0F00U) >> 8;
+                y = (codepoint & 0x00F0U) >> 4;
+                z = codepoint & 0x000FU;
+                /* Output format: 1110wwww 10xxxxyy 10yyzzzz */
+                buf[0] = 0xE0 | w;
+                buf[1] = 0x80 | (x << 2) | (y >> 2);
+                buf[2] = 0x80 | ((y & 0x03) << 4) | z;
+                buf[3] = 0;
+            } else if(codepoint <= 0x10FFFFU) {
+                /* Input format: 000uvvvv wwwwxxxx yyyyzzzz */
+                u = (codepoint & 0x100000U) >> 20;
+                v = (codepoint & 0x0F0000U) >> 16;
+                w = (codepoint & 0x00F000U) >> 12;
+                x = (codepoint & 0x000F00U) >> 8;
+                y = (codepoint & 0x0000F0U) >> 4;
+                z = codepoint & 0x000FU;
+                /* Output format: 11110uvv 10vvwwww 10xxxxyy 10yyzzzz */
+                buf[0] = 0xF0 | (u << 2) | (v >> 2);
+                buf[1] = 0x80 | ((v & 0x03) << 4) | w;
+                buf[2] = 0x80 | (x << 2) | (y >> 2);
+                buf[3] = 0x80 | ((y & 0x03) << 4) | z;
+                buf[4] = 0;
+            } else {
+                printf("Invalid unicode character (must be less than 10FFFF)\n");
+                ok = false;
+            }
+        } else {
+            printf("Invalid unicode character (must be hex string)\n");
+            ok = false;
+        }
+    } else {
+        ok = false;
+    }
+    return ok;
+}
+
+void copyFileName(char ** dest, char * src)
+{
+    if(src) {
+        if (*dest) {
+            SHELL_FREE(*dest);
+            *dest = NULL;
+        }
+        *dest = SHELL_MALLOC(strlen(src) + 1);
+        (void) strcpy(*dest, src);
+    }
+}
+
+#define FILE_COUNT_CHARACTERS   (11)    /* Max unsigned value + underscore, e.g. "_4294967295" */
+
+void insertCountToFileName(char ** dest, char * src, unsigned fcount)
+{
+    char *fname = NULL;
+    char *temp = NULL;
+    char *ext = NULL;
+    size_t nameLen, extLen;
+
+    if(fcount > 0) {
+        /* Split file name and extension (if it exists). */
+        temp = (char *) strrchr(src, '.');
+        if(temp) {
+            extLen = strlen(temp);
+            nameLen = strlen(src) - extLen;
+            ext = SHELL_MALLOC(extLen + 1);
+            if(ext == NULL) {
+                return;
+            }
+            (void) strcpy(ext, temp);
+            temp = NULL;
+        } else {
+            nameLen = strlen(src);
+            extLen = 0;
+        }
+
+        /* Build file name */
+        fname = SHELL_MALLOC(nameLen + extLen + FILE_COUNT_CHARACTERS + 1);
+        if(fname != NULL) {
+            (void) strncpy(fname, src, nameLen);
+            (void) sprintf(&fname[nameLen], "_%d%s",  fcount, ext ? ext : "");
+        }
+        copyFileName(dest, fname);
+    } else {
+        copyFileName(dest, src);
+    }
+
+    if(fname) {
+        SHELL_FREE(fname);
+    }
+    if(ext) {
+        SHELL_FREE(ext);
+    }
+}
+
 /***********************************************************************
  * XMODEM helper functions
  **********************************************************************/
@@ -143,7 +262,7 @@ static void shell_xmodem_putchar(int c, void *usr)
     SHELL_CONTEXT *ctx = x->ctx;
     TERM_STATE *t = &ctx->t;
 
-    term_putch(t, c);
+    t->term_out(c, t->usr);
 }
 
 static int shell_xmodem_getchar(int timeout, void *usr)
@@ -153,7 +272,7 @@ static int shell_xmodem_getchar(int timeout, void *usr)
     TERM_STATE *t = &ctx->t;
     int c;
 
-    c = term_getch(t, timeout);
+    c = t->term_in(timeout, t->usr);
 
     return(c);
 }
@@ -264,31 +383,45 @@ const char shell_help_summary_dump[] = "Hex dump of flash contents";
 
 #include "flash.h"
 
+#define DUMP_SIZE 512
+
 void shell_dump(SHELL_CONTEXT *ctx, int argc, char **argv)
 {
-    uintptr_t addr = 0;
+    uintptr_t addrReq = 0;
     unsigned len = 1;
-    uint8_t *buf;
+    unsigned lenReq = 1;
+    unsigned bytesRead = 0;
+    uintptr_t addrCur;
     int ok;
+    uint8_t *buf;
 
     if (argc < 2) {
         printf("Invalid arguments\n");
         return;
     }
 
-    addr = strtoul(argv[1], NULL, 0);
+    addrReq = strtoul(argv[1], NULL, 0);
+    addrCur = addrReq;
     if (argc > 2) {
-        len = strtoul(argv[2], NULL, 0);
+        lenReq = strtoul(argv[2], NULL, 0);
     }
 
-    buf = SHELL_MALLOC(len);
-    if (buf) {
-        ok = flash_read(context->flashHandle, addr, buf, len);
-        if (ok == FLASH_OK) {
-            dumpBytes(ctx, buf, addr, len);
+    do {
+        len = (lenReq - bytesRead);
+        if (len > DUMP_SIZE) {
+            len = DUMP_SIZE;
         }
-        SHELL_FREE(buf);
-    }
+        buf = SHELL_MALLOC(len);
+        if (buf) {
+            ok = flash_read(context->flashHandle, addrCur, buf, len);
+            if (ok == FLASH_OK) {
+                dumpBytes(ctx, buf, addrCur, len);
+                bytesRead += len;
+                addrCur += len;
+            }
+            SHELL_FREE(buf);
+        }
+    } while ((bytesRead < lenReq) && (ok == FLASH_OK));
 }
 
 /***********************************************************************
@@ -300,8 +433,6 @@ const char shell_help_fdump[] =
   "  start - Start offset in bytes (default: 0)\n"
   "  size - Size in bytes (default: full file)\n";
 const char shell_help_summary_fdump[] = "Dumps the contents of a file in hex";
-
-#define DUMP_SIZE 512
 
 void shell_fdump(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
@@ -358,6 +489,7 @@ const char shell_help_summary_recv[] = "Receive a file via XMODEM";
 void shell_recv( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     FILE_XFER_STATE fileState = { 0 };
+    int oldMode;
     long size;
 
     if( argc != 2 ) {
@@ -373,14 +505,15 @@ void shell_recv( SHELL_CONTEXT *ctx, int argc, char **argv )
         return;
     }
     printf( "Prepare your terminal for XMODEM send ... " );
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    oldMode = uart_stdio_set_mode(UART_STDIO_MODE_RAW);
     size = XmodemReceiveCrc(fileDataWrite, &fileState, INT_MAX,
         shell_xmodem_getchar, shell_xmodem_putchar);
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
+    uart_stdio_set_mode(oldMode);
+    printf("\n"); delay(250);
     if (size < 0) {
         printf( "XMODEM Error: %ld\n", size);
     } else {
-        printf( "received and saved as %s\n", argv[ 1 ] );
+        printf( "Received and saved as %s\n", argv[ 1 ] );
     }
     fclose( fileState.f );
 }
@@ -414,6 +547,7 @@ void shell_send(SHELL_CONTEXT *ctx, int argc, char **argv)
     size_t size;
     FILE *fp = NULL;
     int ret = -1;
+    int oldMode;
     int i;
 
     YMODEM_STATE y = {
@@ -426,7 +560,7 @@ void shell_send(SHELL_CONTEXT *ctx, int argc, char **argv)
     }
 
     printf ("Prepare your terminal for YMODEM receive...\n");
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    oldMode = uart_stdio_set_mode(UART_STDIO_MODE_RAW);
     for (i = 1; i < argc; i++) {
         fp = fopen( argv[i], "rb");
         if (fp) {
@@ -450,7 +584,7 @@ void shell_send(SHELL_CONTEXT *ctx, int argc, char **argv)
         ret = XmodemTransmit(ymodem_end, &y, 128, 0, 1,
             shell_xmodem_getchar, shell_xmodem_putchar);
     }
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
+    uart_stdio_set_mode(oldMode);
     if (ret < 0) {
         printf( "YMODEM Error: %ld\n", ret);
     }
@@ -786,18 +920,14 @@ static void shell_ls_helper( SHELL_CONTEXT *ctx, const char *crtname, int recurs
         printf( "%12u ", ( unsigned )ent->fsize );
         total = total + ent->fsize;
       }
-      if (ent->fdate) {
-          year = ((ent->fdate >> 9) & 0x7F) + 1980;
-          month = (ent->fdate >> 5) & 0xF;
-          day = (ent->fdate >> 0) & 0x1F;
-          printf("%04u-%02u-%02u ", year, month, day);
-    }
-      if (ent->ftime) {
-          hour = (ent->ftime >> 11) & 0x1F;
-          min = (ent->ftime >> 5) & 0x3F;
-          sec = ((ent->ftime >> 0) & 0x1F) * 2;
-          printf("%02u:%02u:%02u ", hour, min, sec);
-      }
+      year = ((ent->fdate >> 9) & 0x7F) + 1980;
+      month = (ent->fdate >> 5) & 0xF;
+      day = (ent->fdate >> 0) & 0x1F;
+      printf("%04u-%02u-%02u ", year, month, day);
+      hour = (ent->ftime >> 11) & 0x1F;
+      min = (ent->ftime >> 5) & 0x3F;
+      sec = ((ent->ftime >> 0) & 0x1F) * 2;
+      printf("%02u:%02u:%02u ", hour, min, sec);
       printf( " %s", ent->fname );
     }
     fs_devman_closedir( d );
@@ -1246,12 +1376,13 @@ void shell_df( SHELL_CONTEXT *ctx, int argc, char **argv )
         sf = 1; sd = 1; emmc = 1;
     }
 
-    printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "Size", "Used", "Available", "Use %");
+    printf("%-10s %10s %10s %10s %5s\n", "Filesystem", "1K-blocks", "Used", "Available", "Use %");
 
     if (sf) {
         s32_t serr; u32_t ssize; u32_t sused;
         serr = SPIFFS_info(context->spiffsHandle, &ssize, &sused);
         if (serr == SPIFFS_OK) {
+          ssize /= 1024; sused /= 1024;
           printf("%-10s %10u %10u %10u %5u\n", SPIFFS_VOL_NAME,
             (unsigned)ssize, (unsigned)sused, (unsigned)(ssize - sused),
             (unsigned)((100 * sused) / ssize));
@@ -1389,44 +1520,101 @@ void shell_cp( SHELL_CONTEXT *ctx, int argc, char **argv )
 /***********************************************************************
  * CMD: run
  **********************************************************************/
-const char shell_help_run[] = "<file1> [<file2> ...]\n";
+const char shell_help_run[] =
+    "[options] <file1> [<file2> ...]\n"
+    "  Valid options\n"
+    "    -l <loop count> - Runs cmd file(s) \"loop count\" times\n"
+    "                      Values: Greater than 0\n";
 const char shell_help_summary_run[] = "Runs a command file";
 
 void shell_run( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     FILE *f = NULL;
     char *cmd = NULL;
-    char *ok = NULL;
+    char *str = NULL;
+    bool ok = true;
     int i;
+    int c = -1;
+    int loopCount = 1;
+    int lineCount;
+    bool printedHelp = false;
 
-    if (argc < 2) {
+    struct option_data opt_data = OPT_DATA_INIT;
+    int opt;
+    int opt_offset;
+
+    /* Parse options. */
+    while ((opt = _getopt(argc, argv, ":l:", &opt_data)) != -1) {
+        switch(opt) {
+            case 'l':
+                loopCount = strtol(opt_data.optarg, NULL, 0);
+                if (loopCount <= 0) {
+                    ok = false;
+                    printf("Value must be a positive integer\n");
+                }
+                break;
+            case '?':
+                ok = false;
+                printf("Option '%c' is not a valid option\n", opt_data.optopt);
+                break;
+            case ':':
+                ok = false;
+                printf("Option '%c' requires an argument\n", opt_data.optopt);
+                break;
+            default:
+                ok = false;
+                printf("Error parsing options\n");
+                break;
+        }
+    }
+    if (!ok) {
+        return;
+    }
+
+    opt_offset = opt_data.optind - 1;
+
+    if (argc < (opt_offset + 2)) {
         printf( "Usage: run <file1> [<file2> ...]\n" );
         return;
     }
 
     cmd = SHELL_MALLOC(SHELL_MAX_LINE_LEN);
 
-    for (i = 1; i < argc; i++) {
-        f = fopen(argv[i], "r");
-        if (f) {
-            ok = NULL;
-            do {
-                ok = fgets(cmd, SHELL_MAX_LINE_LEN, f);
-                if (ok == cmd) {
-                    if (cmd[0] == ';' || cmd[0] == '#') {
-                        continue;
+    while((loopCount > 0) && (c != KC_CTRL_C)) {
+        for (i = (opt_offset + 1); i < argc; i++) {
+            f = fopen(argv[i], "r");
+            if (f) {
+                str = NULL;
+                lineCount = 0;
+                do {
+                    str = fgets(cmd, SHELL_MAX_LINE_LEN, f);
+                    if (str == cmd) {
+                        lineCount++;
+                        if (cmd[0] == ';' || cmd[0] == '#') {
+                            continue;
+                        }
+                        shell_exec(ctx, cmd);
                     }
-                    shell_exec(ctx, cmd);
+                    c = term_getch(&ctx->t, TERM_INPUT_DONT_WAIT);
+                    if((c > 0) && (c != KC_CTRL_C) && !printedHelp) {
+                        printf("Press CTRL + C to abort run command\n");
+                        printedHelp = true;
+                    }
+                } while (str && (c != KC_CTRL_C));
+                fclose(f);
+                if(c == KC_CTRL_C) {
+                    printf("Run command aborted %s:%d\n", argv[i], lineCount);
+                    break;
                 }
-            } while (ok);
-            fclose(f);
-        } else {
-            if (ctx->interactive) {
-                printf("Failed to open '%s'\n", argv[i]);
             } else {
-                syslog_printf("Failed to open '%s'\n", argv[i]);
+                if (ctx->interactive) {
+                    printf("Failed to open '%s'\n", argv[i]);
+                } else {
+                    syslog_printf("Failed to open '%s'\n", argv[i]);
+                }
             }
         }
+        loopCount--;
     }
 
     SHELL_FREE(cmd);
@@ -1654,6 +1842,7 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
     char *warn = "Updating the firmware is DANGEROUS - DO NOT REMOVE POWER!";
     FLASH_WRITE_STATE state;
     const FLASH_INFO *flash;
+    int oldMode;
     long size;
 
     /* Confirm action */
@@ -1677,15 +1866,15 @@ void shell_update(SHELL_CONTEXT *ctx, int argc, char **argv)
 
     /* Start the update */
     printf( "Start XMODEM transfer now... ");
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 0);
+    oldMode = uart_stdio_set_mode(UART_STDIO_MODE_RAW);
     size = XmodemReceiveCrc(flashDataWrite, &state, INT_MAX,
         shell_xmodem_getchar, shell_xmodem_putchar);
-    term_set_mode(&ctx->t, TERM_MODE_COOKED, 1);
+    uart_stdio_set_mode(oldMode);
 
     /* Wait a bit */
-    delay(100);
+    printf("\n"); delay(250);
 
-    /* Display results and erase any remaining space */
+    /* Display results */
     if (size < 0) {
        printf( "XMODEM Error: %ld\n", size);
     } else {
@@ -1941,6 +2130,47 @@ void shell_resize(SHELL_CONTEXT *ctx, int argc, char **argv )
 }
 
 /***********************************************************************
+ * CMD: shell
+ **********************************************************************/
+const char shell_help_shell[] =
+  "[redirect] [value] [arg]\n"
+  "  redirect - Send output to 0:none, 1:stdout, 2:syslog, 3:file\n"
+  "             For file, include file name as [arg]\n"
+  "             default: 1\n";
+const char shell_help_summary_shell[] = "Set shell parameters";
+
+void shell_shell(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    if (argc >= 2) {
+        if (strcasecmp(argv[1], "redirect") == 0) {
+            if (argc >= 3) {
+                if (ctx->redirectFile) {
+                    fclose(ctx->redirectFile);
+                    ctx->redirectFile = NULL;
+                }
+                ctx->redirect = atoi(argv[2]);
+                if ((ctx->redirect < 0) || (ctx->redirect > 3)) {
+                    ctx->redirect = 1;
+                }
+                if (ctx->redirect == 3) {
+                    if (argc > 3) {
+                        ctx->redirectFile = fopen(argv[3], "w");
+                    }
+                    if (ctx->redirectFile == NULL) {
+                        ctx->redirect = 1;
+                        printf("Invalid file\n");
+                    }
+                }
+            } else {
+                printf("Shell redirect: %d\n", ctx->redirect);
+            }
+        } else {
+            printf("Invalid shell subcommand\n");
+        }
+    }
+}
+
+/***********************************************************************
  * CMD: test
  **********************************************************************/
 const char shell_help_test[] = "\n";
@@ -1953,7 +2183,15 @@ void shell_test(SHELL_CONTEXT *ctx, int argc, char **argv )
 /***********************************************************************
  * CMD: vu
  **********************************************************************/
-const char shell_help_vu[] = "[domain a2b|system]\n";
+const char shell_help_vu[] =
+    "[options] [domain [ a2b | system ] ]\n"
+    "  Valid options\n"
+    "    -c <channels> - Values: 1 - 64\n"
+    "    -d <domain>   - Values \"a2b\", \"system\"\n"
+    "    -s <outchar>  - Values: ASCII character (e.g. \"T\") or \n"
+    "                             UTF-8 hex string (e.g \"25A0\")\n"
+    "  domain          - Only set/get the VU meter clock comain\n"
+    "                    Values: \"a2b\" or \"system\"";
 const char shell_help_summary_vu[] = "Show VU meters";
 
 #include <math.h>
@@ -1961,13 +2199,27 @@ const char shell_help_summary_vu[] = "Show VU meters";
 
 #define VU_UPDATE_DELAY_MS    75
 
+static int shell_vu_set_domain(const char *str)
+{
+    int ret = 0;
+    if (strcmp(str, "a2b") == 0) {
+        clock_domain_set(context, CLOCK_DOMAIN_A2B, CLOCK_DOMAIN_BITM_VU_IN);
+    } else if (strcmp(str, "system") == 0) {
+        clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VU_IN);
+    } else {
+        ret = -1;
+    }
+    return(ret);
+}
+
 void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
-    unsigned idx, channels;
+    unsigned idx;
+    unsigned channels = SYSTEM_MAX_CHANNELS;
     SYSTEM_AUDIO_TYPE vu[VU_MAX_CHANNELS];
     SYSTEM_AUDIO_TYPE value;
     unsigned vu_pix[VU_MAX_CHANNELS];
-    double db;
+    double db, dbLine;
     unsigned lines, cols;
     unsigned vu_lines, offset;
     unsigned l;
@@ -1980,42 +2232,95 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
     bool split_screen;
     unsigned ch;
     unsigned line, col;
+    struct option_data opt_data = OPT_DATA_INIT;
+    int opt;
+    int opt_offset;
+    int err = 0;
+    char ylabel[16];
+    unsigned dbNext;
 
+    char *HIDE_CURSOR = "\x1B[?25l";
+    char *SHOW_CURSOR = "\x1B[?25h";
     char *RESET_MODE = "\x1B[0m";
     char *BLACK = "\x1B[30;40m";
 
     /* Black background with block char, 1 space between channels */
-    char *px = "\xDC";
     char *RED = "\x1B[31;40m";
     char *YELLOW = "\x1B[33;40m";
     char *GREEN = "\x1B[32;40m";
+    char *WHITE = "\x1B[37;40m";
 
-    if (argc > 1) {
-        if (strcmp(argv[1], "domain") == 0) {
-            if (argc > 2) {
-                if (strcmp(argv[2], "a2b") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_A2B, CLOCK_DOMAIN_BITM_VU_IN);
-                } else if (strcmp(argv[2], "system") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VU_IN);
-                } else {
+    long int unicodechar;
+    char outchar[5] = "|";
+
+    /* Parse options. */
+    while ((opt = _getopt(argc, argv, ":c:d:s:", &opt_data)) != -1) {
+        switch(opt) {
+            case 'c':
+                channels = strtol(opt_data.optarg, NULL, 0);
+                if ((channels < 1) || (channels > VU_MAX_CHANNELS)) {
+                    err = 1;
+                    printf("Bad channels\n");
+                }
+                break;
+            case 'd':
+                err = shell_vu_set_domain(opt_data.optarg);
+                if (err != 0) {
+                    err = 2;
                     printf("Bad domain\n");
                 }
-                return;
-            } else {
-                printf("No domain\n");
-            }
-            return;
+                break;
+            case 's':
+                if(strlen(opt_data.optarg) == 1) {
+                    /* Use character as it is */
+                    if( (opt_data.optarg[0] >= 0x20) && (opt_data.optarg[0] <= 0x7E) ){
+                        (void) strcpy(outchar, opt_data.optarg);
+                    }
+                } else {
+                    /* Encode to UTF-8 */
+                    unicodechar = strtol(opt_data.optarg, NULL, 16);
+                    if(false == encodeUtf8(ctx, unicodechar, outchar)) {
+                        err = 3;
+                    }
+                }
+                break;
+            case '?':
+                err = -1;
+                printf("Option '%c' is not a valid option\n", opt_data.optopt);
+                break;
+            case ':':
+                err = -2;
+                printf("Option '%c' requires an argument\n", opt_data.optopt);
+                break;
+            default:
+                err = -3;
+                printf("Error parsing options\n");
+                break;
         }
     }
 
-    channels = SYSTEM_MAX_CHANNELS;
-    if (argc > 1) {
-        channels = strtol(argv[1], NULL, 0);
-        if ((channels < 1) || (channels > VU_MAX_CHANNELS)) {
-            printf("Bad channels\n");
-            return;
-        }
+    if(err != 0){
+        return;
     }
+
+    opt_offset = opt_data.optind - 1;
+
+    /* Short circuit only getting/setting clock domain */
+    if ((argc >= (opt_offset + 2)) && (strcmp(argv[opt_offset + 1], "domain") == 0)) {
+        CLOCK_DOMAIN cd;
+        if (argc == (opt_offset + 2)) {
+            cd = clock_domain_get(context, CLOCK_DOMAIN_BITM_VU_IN);
+            printf("%s\n", clock_domain_str(cd));
+            return;
+        } else {
+            err = shell_vu_set_domain(argv[opt_offset + 2]);
+            if (err != 0) {
+                printf("Bad domain\n");
+            }
+        }
+        return;
+    }
+
     channels = getVU(context, NULL, channels);
 
     char *color = NULL;
@@ -2035,7 +2340,7 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
     /* Calculate some values */
     if (channels > 32) {
         split_screen = true;
-        vu_lines = lines / 2 - 2;
+        vu_lines = lines / 2;
     } else {
         split_screen = false;
         vu_lines = lines;
@@ -2043,6 +2348,31 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
 
     /* Clear the screen */
     term_clrscr(&ctx->t);
+
+    /* Hide cursor */
+    term_putstr(&ctx->t, HIDE_CURSOR, strlen(HIDE_CURSOR));
+
+    /* Minimal y axis */
+    term_putstr(&ctx->t, WHITE, strlen(WHITE));
+    offset = 1;
+    for (int i = 0; i < (split_screen ? 2 : 1); i++) {
+        dbLine = 72.0 / (double)(vu_lines-1);
+        db = 0.0; dbNext = split_screen ? 24 : 12;
+        term_gotoxy(&ctx->t, 1, offset);
+        term_putstr(&ctx->t, "0dB", 3);
+        for (idx = 0; idx <= vu_lines-1 && dbNext < 72; idx++) {
+            if (db >= dbNext) {
+                term_gotoxy(&ctx->t, 1, idx + offset);
+                sprintf(ylabel, "-%ddB", dbNext);
+                term_putstr(&ctx->t, ylabel, strlen(ylabel));
+                dbNext += split_screen ? 24 : 12;
+            }
+            db += dbLine;
+        }
+        term_gotoxy(&ctx->t, 1, vu_lines + offset - 1);
+        term_putstr(&ctx->t, "-72dB", 5);
+        offset += vu_lines;
+    }
 
     do {
         /* Get VU linear values */
@@ -2053,8 +2383,8 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
             value = vu[idx];
             if (value > 0) {
                 db = 20.0 * log10((double)value / 2147483647.0);
-                /* Scale for VU meter -70dB = 0, 0dB = 'lines' */
-                db = ((double)vu_lines / 70.0) * db + (double)vu_lines;
+                /* Scale for VU meter -72dB = 0, 0dB = 'vu_lines' */
+                db = ((double)vu_lines / 72.0) * db + (double)vu_lines;
                 /* Round up to show full scale */
                 db += 0.5;
                 /* Always show something if a signal is present */
@@ -2073,36 +2403,14 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
             }
         }
 
-        /* Render up to first 32 channels into screen buffer */
-        ch = (split_screen) ? 32 : channels;
-        offset = (cols - ch * 2) / 2;
-        for (idx = 0; idx < ch; idx++) {
-            for (l = 0; l < vu_lines; l++) {
-                if (l < vu_pix[idx]) {
-                    if (l > ((vu_lines * 2) / 3)) {
-                        p = 'R';
-                    } else if (l > (vu_lines / 3)) {
-                        p = 'Y';
-                    } else {
-                        p = 'G';
-                    }
-                } else {
-                    p = 'B';
-                }
-                line = (lines - 1) - l;
-                col = offset + idx * 2;
-                screenPix = line * cols + col;
-                screen[screenIdx][screenPix] = p;
-            }
-        }
-
-        /* Render next 32 channels into screen buffer */
-        if (split_screen) {
-            ch = channels - 32;
-            offset = (cols - ch * 2) / 2;
+        /* Render into screen buffer */
+        for (int i = 0; i < (split_screen ? 2 : 1); i++) {
+            if (i == 0) { ch = channels > 32 ? 32 : channels; }
+            if (i == 1) { ch = channels - 32; }
+            offset = (cols - 32 * 2) / 2;
             for (idx = 0; idx < ch; idx++) {
                 for (l = 0; l < vu_lines; l++) {
-                    if (l < vu_pix[idx+32]) {
+                    if (l < vu_pix[idx+32*i]) {
                         if (l > ((vu_lines * 2) / 3)) {
                             p = 'R';
                         } else if (l > (vu_lines / 3)) {
@@ -2113,7 +2421,7 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
                     } else {
                         p = 'B';
                     }
-                    line = ((lines / 2) - 1) - l;
+                    line = ((lines / (i+1)) - 1) - l;
                     col = offset + idx * 2;
                     screenPix = line * cols + col;
                     screen[screenIdx][screenPix] = p;
@@ -2149,7 +2457,7 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
                         term_putstr(&ctx->t, color, strlen(color));
                         color = old_color;
                     }
-                    term_putstr(&ctx->t, px, 1);
+                    term_putstr(&ctx->t, outchar, strlen(outchar));
                 }
             }
         }
@@ -2170,6 +2478,7 @@ void shell_vu(SHELL_CONTEXT *ctx, int argc, char **argv )
 
     /* Reset the character mode */
     term_putstr(&ctx->t, RESET_MODE, strlen(RESET_MODE));
+    term_putstr(&ctx->t, SHOW_CURSOR, strlen(SHOW_CURSOR));
 
     /* Clear the screen */
     term_clrscr(&ctx->t);
@@ -2377,8 +2686,7 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
                 route->mix = 0;
                 taskEXIT_CRITICAL();
             }
-        }
-        else {
+        } else {
             printf("Invalid input. Type 'help route' for more details.\n");
             return;
         }
@@ -2464,57 +2772,154 @@ void shell_route(SHELL_CONTEXT *ctx, int argc, char **argv)
     taskEXIT_CRITICAL();
 }
 
+/***********************************************************************
+ * CMD: echo
+ **********************************************************************/
+const char shell_help_echo[] = "[arg_1] ... [arg_n]\n";
+const char shell_help_summary_echo[] = "Echos arguments";
+
+void shell_echo(SHELL_CONTEXT *ctx, int argc, char **argv )
+{
+    int i;
+    for (i = 1; i < argc; i++) {
+        printf("%s ", argv[i]);
+    }
+    printf("\n");
+}
 
 /***********************************************************************
  * CMD: wav
  **********************************************************************/
-const char shell_help_wav[] = "<src|sink> <on|off> [file] [channels] [bits]\n";
+const char shell_help_wav[] =
+    "[options] <src|sink> <on|off> [file] [channels] [bits]\n"
+    "  Valid options\n"
+    "    -b <bits>       - Set bit format\n"
+    "                      Values: 16, 32\n"
+    "    -c <channels>   - Set number of channels\n"
+    "                      Values: 1 - 64\n"
+    "    -d <domain>     - Set clock domain\n"
+    "                      Values: \"a2b\", \"system\"\n"
+    "    -f <file>       - Set src/sink file name\n"
+    "                      Values: String\n"
+    "    -i              - Enable sink file name count auto-increase\n"
+    "    -l <loop count> - Plays source file \"loop count\" times\n"
+    "                      Values: Greater than 0\n";
 const char shell_help_summary_wav[] = "Manages wave file source/sink";
 
 #include "wav_file.h"
 #include "clock_domain.h"
+#include "task_cfg.h"
 
-static void wav_state(SHELL_CONTEXT *ctx, char *name, int clockDomainMask, WAV_FILE *wf)
+static void wav_state(SHELL_CONTEXT *ctx, int clockDomainMask, WAV_FILE *wf, bool isSrc)
 {
+    char loopHelp[30];
+
+    if(isSrc) {
+        if(wf->loopCount > 0) {
+            sprintf(loopHelp, ", %d/%d loops", wf->loopCount, wf->loopCountTotal);
+        } else {
+            sprintf(loopHelp, ", N/A");
+        }
+    }
+
     printf(
-        "%s: %s, %s, %d-bit, %d ch, %s\n",
-        name,
+        "%s: %s, %s, %d-bit, %d ch, %s%s\n",
+        isSrc ? "Src" : "Sink",
         wf->enabled ? "ON" : "OFF",
         wf->fname ? wf->fname : "N/A",
         wf->wordSizeBytes == 2 ? 16 : 32,
         wf->channels,
-        clock_domain_str(clock_domain_get(context, clockDomainMask))
+        clock_domain_str(clock_domain_get(context, clockDomainMask)),
+        isSrc ? loopHelp : ""
     );
 }
 
 void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
 {
     WAV_FILE *wf = NULL;
-    int channels;
-    int wordSizeBytes;
-    int bits;
+    int channels = 2;
+    int wordSizeBytes = sizeof(int16_t);
+    int bits = 16;
     char *fname = NULL;
     bool on;
     bool isSrc;
+    bool inc = false;
     bool ok = true;
-    int clockDomainMask;
+    CLOCK_DOMAIN domain = CLOCK_DOMAIN_MAX;
+    int clockDomainMask = 0;
     bool channelsSpecified = false;
+    int loopCount = -1; /* Loop indefinitely */
 
-    if (argc == 1) {
-        wav_state(ctx, "Src", CLOCK_DOMAIN_BITM_WAV_SRC, &context->wavSrc);
-        wav_state(ctx, "Sink", CLOCK_DOMAIN_BITM_WAV_SINK, &context->wavSink);
+    struct option_data opt_data = OPT_DATA_INIT;
+    int opt;
+    int opt_offset;
+
+    /* Parse options. */
+    while ((opt = _getopt(argc, argv, ":b:c:d:f:il:", &opt_data)) != -1) {
+        switch(opt) {
+            case 'b':
+                bits = atoi(opt_data.optarg);
+                break;
+            case 'c':
+                channels = atoi(opt_data.optarg);
+                channelsSpecified = true;
+                break;
+            case 'd':
+                if (strcmp(opt_data.optarg, "a2b") == 0) {
+                    domain = CLOCK_DOMAIN_A2B;
+                } else if (strcmp(opt_data.optarg, "system") == 0) {
+                    domain = CLOCK_DOMAIN_SYSTEM;
+                } else {
+                    ok = false;
+                    printf("Bad domain\n");
+                }
+                break;
+            case 'f':
+                fname = opt_data.optarg;
+                break;
+            case 'i':
+                inc = true;
+                break;
+            case 'l':
+                loopCount = strtol(opt_data.optarg, NULL, 0);
+                if (loopCount <= 0) {
+                    ok = false;
+                    printf("Value must be a positive integer\n");
+                }
+                break;
+            case '?':
+                ok = false;
+                printf("Option '%c' is not a valid option\n", opt_data.optopt);
+                break;
+            case ':':
+                ok = false;
+                printf("Option '%c' requires an argument\n", opt_data.optopt);
+                break;
+            default:
+                ok = false;
+                printf("Error parsing options\n");
+                break;
+        }
+    }
+    if (!ok) {
         return;
     }
 
-    if (argc >= 2) {
-        if (strcmp(argv[1], "src") == 0) {
+    opt_offset = opt_data.optind - 1;
+
+    if (argc == opt_data.optind) {
+        wav_state(ctx, CLOCK_DOMAIN_BITM_WAV_SRC, &context->wavSrc, true);
+        wav_state(ctx, CLOCK_DOMAIN_BITM_WAV_SINK, &context->wavSink, false);
+        return;
+    }
+
+    if (argc >= (opt_offset + 2)) {
+        if (strcmp(argv[opt_offset + 1], "src") == 0) {
             wf = &context->wavSrc;
-            fname = "src.wav";
             isSrc = true;
             clockDomainMask = CLOCK_DOMAIN_BITM_WAV_SRC;
-        } else if (strcmp(argv[1], "sink") == 0) {
+        } else if (strcmp(argv[opt_offset + 1], "sink") == 0) {
             wf = &context->wavSink;
-            fname = "sink.wav";
             isSrc = false;
             clockDomainMask = CLOCK_DOMAIN_BITM_WAV_SINK;
         } else {
@@ -2528,31 +2933,19 @@ void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
         return;
     }
 
-    if (argc >= 3) {
-        if (strcmp(argv[2], "on") == 0) {
+    if (argc >= (opt_offset + 3)) {
+        if (strcmp(argv[opt_offset + 2], "on") == 0) {
             if (wf->enabled) {
                 printf("Already on\n");
                 return;
             }
             on = true;
-        } else if (strcmp(argv[2], "off") == 0) {
+        } else if (strcmp(argv[opt_offset + 2], "off") == 0) {
             if (!wf->enabled) {
                 printf("Already off\n");
                 return;
             }
             on = false;
-        } else if (strcmp(argv[2], "domain") == 0) {
-            if (argc >= 4) {
-                if (strcmp(argv[3], "a2b") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_A2B, clockDomainMask);
-                } else if (strcmp(argv[3], "system") == 0) {
-                    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, clockDomainMask);
-                } else {
-                    printf("Bad domain\n");
-                }
-                return;
-            }
-            return;
         } else {
             ok = false;
         }
@@ -2560,49 +2953,67 @@ void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
         ok = false;
     }
     if (!ok) {
-        printf("Invalid on/off/domain\n");
+        printf("Invalid on/off\n");
         return;
     }
 
-    if (argc >= 4) {
-        fname = argv[3];
-    } else {
-        if (wf->fname) {
-            fname = NULL;
+    if (argc >= (opt_offset + 4)) {
+        fname = argv[opt_offset + 3];
+    }
+    if ((wf->fname == NULL) && (fname == NULL)) {
+        if(isSrc) {
+            fname = "src.wav";
+        } else {
+            fname = "sink.wav";
         }
     }
 
-    channels = 2;
-    if (argc >= 5) {
-        channels = atoi(argv[4]);
-        if (channels > WAV_MAX_CHANNELS) {
-            channels = WAV_MAX_CHANNELS;
-        }
+    if (argc >= (opt_offset + 5)) {
+        channels = atoi(argv[opt_offset + 4]);
         channelsSpecified = true;
     }
-
-    wordSizeBytes = sizeof(int16_t);
-    if (argc >= 6) {
-        bits = atoi(argv[5]);
-        if (bits == 32) {
-            wordSizeBytes = 4;
-        }
+    if (channels > WAV_MAX_CHANNELS) {
+        channels = WAV_MAX_CHANNELS;
     }
 
+    if (argc >= (opt_offset + 6)) {
+        bits = atoi(argv[opt_offset + 5]);
+    }
+    if (bits == 32) {
+        wordSizeBytes = 4;
+    }
+
+    if((domain != CLOCK_DOMAIN_MAX) && (clockDomainMask != 0)) {
+        clock_domain_set(context, domain, clockDomainMask);
+    }
+
+    UBaseType_t oldPrio = uxTaskPriorityGet(NULL);
+    vTaskPrioritySet(NULL, WAV_TASK_PRIORITY + 1);
     xSemaphoreTake((SemaphoreHandle_t)wf->lock, portMAX_DELAY);
     if (on) {
-        if (!isSrc) {
+        if (isSrc) {
+            wf->loopCount = loopCount;
+            wf->loopCountTotal = loopCount;
+            memset(&context->wavSrcStats, 0, sizeof(context->wavSrcStats));
+            copyFileName(&wf->fname, fname);
+        } else {
             wf->channels = channels;
             wf->sampleRate = SYSTEM_SAMPLE_RATE;
             wf->wordSizeBytes = wordSizeBytes;
-            wf->frameSizeBytes = SYSTEM_BLOCK_SIZE * wf->wordSizeBytes;
-        }
-        if (fname) {
-            if (wf->fname) {
-                SHELL_FREE(wf->fname); wf->fname = NULL;
+            wf->frameSizeBytes = wf->channels * wf->wordSizeBytes;
+            memset(&context->wavSinkStats, 0, sizeof(context->wavSinkStats));
+            if(fname) {
+                wf->fileAutoIncrease = inc;
+                if(inc) {
+                    copyFileName(&wf->fnameInput, fname);
+                    wf->fcount = 0;
+                } else {
+                    copyFileName(&wf->fname, fname);
+                }
             }
-            wf->fname = SHELL_MALLOC(strlen(fname) + 1);
-            strcpy(wf->fname, fname);
+            if(wf->fileAutoIncrease) {
+                insertCountToFileName(&wf->fname, wf->fnameInput, wf->fcount);
+            }
         }
         wf->isSrc = isSrc;
         ok = openWave(wf);
@@ -2631,9 +3042,30 @@ void shell_wav( SHELL_CONTEXT *ctx, int argc, char **argv )
             }
         }
     } else {
+        if (isSrc) {
+            if (context->wavSrcStats.slowReads) {
+                printf("WARNING: %u slow read%s\n", context->wavSrcStats.slowReads,
+                    context->wavSrcStats.slowReads == 1 ? "" : "s");
+            }
+            if (context->wavSrcStats.underrun) {
+                printf("WARNING: %u audio underrund\n", context->wavSrcStats.underrun);
+            }
+            memset(&context->wavSrcStats, 0, sizeof(context->wavSrcStats));
+        } else {
+            if (context->wavSinkStats.slowWrites) {
+                printf("WARNING: %u slow write%s\n", context->wavSinkStats.slowWrites,
+                    context->wavSinkStats.slowWrites == 1 ? "" : "s");
+            }
+            if (context->wavSinkStats.overrun) {
+                printf("WARNING: %u audio overruns\n", context->wavSinkStats.overrun);
+            }
+            memset(&context->wavSrcStats, 0, sizeof(context->wavSrcStats));
+            wf->fcount++;
+        }
         closeWave(wf);
     }
     xSemaphoreGive((SemaphoreHandle_t)wf->lock);
+    vTaskPrioritySet(NULL, oldPrio);
 }
 
 /***********************************************************************
@@ -3160,103 +3592,154 @@ void shell_delay(SHELL_CONTEXT *ctx, int argc, char **argv )
  * CMD: sdtest
  **********************************************************************/
 const char shell_help_sdtest[] =
-    "[ms]\n"
-    "  ms - Number of milliseconds to read/write (default 5000)\n";
+    "[ms] [raw]\n"
+    "   ms - Number of milliseconds to write/read (default 5000)\n"
+    "  raw - Test normal raw speed, not optimized WAV file speed (default WAV)\n";
 
 const char shell_help_summary_sdtest[] =
     "Test the write/read speed of the SD card";
 
-#include "wav_file_cfg.h"
+#define SDTEST_MS      (5000)
+#define RAW_RWBUFSIZE  (1024)
 
-#define SDTEST_MS   (5000)
-#define IO_BUF_SIZE (WAVE_FILE_BUF_SIZE)
-#define RWBUFSIZE   (IO_BUF_SIZE/4)
+size_t shell_sdtest_wav(SHELL_CONTEXT *ctx, char *fname,
+    bool read, uint32_t ms, uint32_t *b, uint32_t *e)
+{
+    uint32_t begin, end;
+    char *buf = NULL;
+    size_t words, bsize, rwsize, samples;
+    bool ok;
+
+    WAV_FILE wr = {
+        .fname = fname,
+        .isSrc = true
+    };
+    WAV_FILE ww = {
+        .fname = fname,
+        .channels = WAV_MAX_CHANNELS,
+        .sampleRate = SYSTEM_SAMPLE_RATE,
+        .wordSizeBytes = sizeof(SYSTEM_AUDIO_TYPE),
+        .frameSizeBytes = WAV_MAX_CHANNELS * sizeof(SYSTEM_AUDIO_TYPE),
+        .isSrc = false
+    };
+    WAV_FILE *w = read ? &wr : &ww;
+
+    words = 0; begin = 0; end = 1;
+    ok = openWave(w);
+    if (ok) {
+        bsize = w->frameSizeBytes * SYSTEM_BLOCK_SIZE;
+        samples = bsize / w->wordSizeBytes;
+        buf = umm_calloc(1, bsize);
+    }
+    if (ok && buf) {
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            if (read) {
+                ok = readWave(w, buf, samples, &rwsize);
+            } else {
+                ok = writeWave(w, buf, samples, &rwsize);
+            }
+
+            if(ok) {
+                words += rwsize;
+                end = rtosTimeMs();
+            } else {
+                printf("Error %s file\n", (read ? "reading" : "writing"));
+                break;
+            }
+        }
+
+    }
+    closeWave(w);
+
+    if (buf) { umm_free(buf); }
+    if (b) { *b = begin; }
+    if (e) { *e = end;  }
+
+    return(words * w->wordSizeBytes);
+}
+
+size_t shell_sdtest_raw(SHELL_CONTEXT *ctx, char *fname,
+    bool read, uint32_t ms, uint32_t *b, uint32_t *e)
+{
+    FILE *f = NULL;
+    uint32_t begin, end;
+    size_t sz, rwsz;
+
+    char *fbuf = NULL;
+
+    fbuf = (char *)umm_calloc(RAW_RWBUFSIZE, 1);
+    sz = 0; begin = 0; end = 1;
+
+    f = fopen(fname, read ? "rb" : "wb");
+    if (f && fbuf) {
+        begin = end = rtosTimeMs();
+        while ((end - begin) < ms) {
+            if (read) {
+                rwsz = fread(fbuf, 1, RAW_RWBUFSIZE, f);
+                if (rwsz == 0) {
+                    fseek(f, 0, SEEK_SET);
+                }
+            } else {
+                rwsz = fwrite(fbuf, 1, RAW_RWBUFSIZE, f);
+            }
+            sz += rwsz;
+            end = rtosTimeMs();
+        }
+    }
+    if (f) { fclose(f); }
+
+    if (fbuf) { umm_free(fbuf); }
+    if (b) { *b = begin; }
+    if (e) { *e = end; }
+
+    return(sz);
+}
 
 void shell_sdtest(SHELL_CONTEXT *ctx, int argc, char **argv )
 {
 #if defined(SDCARD_VOL_NAME) && !defined(SDCARD_USE_EMMC)
     char *fname = "sd:jo11IEjP6i.bin";
-    char *fbuf = NULL;
-    char *vbuf = NULL;
-    FILE *f = NULL;
     uint32_t begin, end;
-    unsigned long KBPS;
-    size_t sz, rwsz;
+    unsigned long kBps;
+    size_t sz;
     uint32_t ms;
+    bool raw = false;
 
     ms = SDTEST_MS;
     if (argc > 1) {
         ms = atoi(argv[1]);
+        if (ms < 1000) {
+            ms = 1000;
+        }
     }
 
-    printf("Testing SD card read/write for %u mS...\n", (unsigned)ms);
-
-    vbuf = (char *)WAVE_FILE_CALLOC(IO_BUF_SIZE, 1);
-    fbuf = (char *)WAVE_FILE_CALLOC(RWBUFSIZE, 1);
-
-    /* Fill with a simple test pattern */
-    for (sz = 0; sz < RWBUFSIZE; sz++) {
-        fbuf[sz] = sz & 0xFF;
+    if (argc > 2) {
+        raw = strcasecmp(argv[2], "raw") == 0;
     }
+
+    printf("Testing SD card %s write/read for %u mS...\n",
+        raw ? "RAW" : "WAV", (unsigned)ms);
 
     /* Write Test */
-    f = fopen(fname, "wb");
-    if (f && vbuf && fbuf) {
-        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
-
-        sz = 0;
-        begin = end = rtosTimeMs();
-        while ((end - begin) < ms) {
-            rwsz = fwrite(fbuf, 1, RWBUFSIZE, f);
-            sz += rwsz;
-            end = rtosTimeMs();
-        }
-
-        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
-
-        printf("Write: %lu KB/s (%u Bytes, %u ms)\n",
-            KBPS, (unsigned)sz, (unsigned)(end - begin));
+    if (raw) {
+        sz = shell_sdtest_raw(ctx, fname, false, ms, &begin, &end);
+    } else {
+        sz = shell_sdtest_wav(ctx, fname, false, ms, &begin, &end);
     }
-    if (f) {
-        fclose(f); f = NULL;
-    }
+    kBps = (unsigned long)sz / (unsigned long)(end - begin);
+    printf("Write: %lu kB/s (%u Bytes, %u ms)\n",
+        kBps, (unsigned)sz, (unsigned)(end - begin));
 
     /* Read Test */
-    f = fopen(fname, "rb");
-    if (f && vbuf && fbuf) {
-        setvbuf(f, vbuf, _IOFBF, IO_BUF_SIZE);
-
-        sz = 0;
-        begin = end = rtosTimeMs();
-        while ((end - begin) < ms) {
-            rwsz = fread(fbuf, 1, RWBUFSIZE, f);
-            if (rwsz == 0) {
-                fseek(f, 0, SEEK_SET);
-            }
-            sz += rwsz;
-            end = rtosTimeMs();
-        }
-
-        KBPS = (unsigned long)sz / (unsigned long)(end - begin);
-
-        printf("Read: %lu KB/s (%u Bytes, %u ms)\n",
-            KBPS, (unsigned)sz, (unsigned)(end - begin));
-
-        fclose(f); f = NULL;
+    if (raw) {
+        sz = shell_sdtest_raw(ctx, fname, true, ms, &begin, &end);
+    } else {
+        sz = shell_sdtest_wav(ctx, fname, true, ms, &begin, &end);
     }
-    if (f) {
-        fclose(f); f = NULL;
-    }
-
-    if (f) {
-        fclose(f);
-    }
-    if (vbuf) {
-        WAVE_FILE_FREE(vbuf);
-    }
-    if (fbuf) {
-        WAVE_FILE_FREE(fbuf);
-    }
+    kBps = (unsigned long)sz / (unsigned long)(end - begin);
+    printf("Read: %lu kB/s (%u Bytes, %u ms)\n",
+        kBps, (unsigned)sz, (unsigned)(end - begin));
 
     unlink(fname);
 #else

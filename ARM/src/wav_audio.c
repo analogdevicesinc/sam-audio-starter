@@ -24,9 +24,7 @@
 #include "umm_malloc.h"
 #include "clock_domain.h"
 #include "task_cfg.h"
-
-static unsigned wavSrcUnderflow = 0;
-static unsigned wavSinkOverflow = 0;
+#include "syslog.h"
 
 /* Task notification values */
 enum {
@@ -49,6 +47,7 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
     uint32_t whatToDo;
     unsigned samplesIn;
     unsigned samplesOut;
+    unsigned maxReads;
     size_t rsize;
     bool ok;
 
@@ -57,10 +56,10 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
         if (wavSrc->enabled) {
             samplesIn = WAV_MAX_CHANNELS * SYSTEM_BLOCK_SIZE;
             samplesOut = PaUtil_GetRingBufferWriteAvailable(wavSrcRB);
+            maxReads = 2 * (samplesOut / samplesIn);
             ok = true;
-            while (ok && (samplesOut >= samplesIn)) {
-                rsize = readWave(wavSrc, srcBuffer, samplesIn);
-                ok = (rsize >= 0);
+            while (ok && (samplesOut >= samplesIn) && maxReads) {
+                ok = readWave(wavSrc, srcBuffer, samplesIn, &rsize);
                 if (ok) {
                     if (wavSrc->wordSizeBytes == sizeof(SYSTEM_AUDIO_TYPE)) {
                         PaUtil_WriteRingBuffer(wavSrcRB, srcBuffer, rsize);
@@ -73,6 +72,12 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
                         PaUtil_WriteRingBuffer(wavSrcRB, srcBuffer2, rsize);
                     }
                     samplesOut = PaUtil_GetRingBufferWriteAvailable(wavSrcRB);
+                    if ((--maxReads == 0) && (samplesOut > WAV_RING_BUF_SAMPLES / 2)) {
+                        if (context->wavSrcStats.slowReads == 0) {
+                            syslog_print("WARNING: Slow WAV file reads");
+                        }
+                        context->wavSrcStats.slowReads++;
+                    }
                 }
             }
             if (!ok) {
@@ -82,7 +87,7 @@ portTASK_FUNCTION(wavSrcTask, pvParameters)
             PaUtil_FlushRingBuffer(wavSrcRB);
         }
         xSemaphoreGive((SemaphoreHandle_t)wavSrc->lock);
-        whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+        whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
     }
 }
 
@@ -95,6 +100,7 @@ portTASK_FUNCTION(wavSinkTask, pvParameters)
     uint32_t whatToDo;
     unsigned samplesIn;
     unsigned samplesOut;
+    unsigned maxWrites;
     size_t wsize;
     bool ok;
 
@@ -103,28 +109,35 @@ portTASK_FUNCTION(wavSinkTask, pvParameters)
         if (wavSink->enabled) {
             samplesIn = PaUtil_GetRingBufferReadAvailable(wavSinkRB);
             samplesOut = wavSink->channels * SYSTEM_BLOCK_SIZE;
+            maxWrites = 2 * (samplesIn / samplesOut);
             ok = true;
-            while (ok && (samplesIn >= samplesOut)) {
+            while (ok && (samplesIn >= samplesOut) && maxWrites) {
                 PaUtil_ReadRingBuffer(
                     wavSinkRB, sinkBuffer2, samplesOut
                 );
                 if (wavSink->wordSizeBytes == sizeof(SYSTEM_AUDIO_TYPE)) {
-                    wsize = writeWave(wavSink, sinkBuffer2, samplesOut);
+                    (void) writeWave(wavSink, sinkBuffer2, samplesOut, &wsize);
                 } else {
                     copyAndConvert(
                         sinkBuffer2, sizeof(SYSTEM_AUDIO_TYPE), wavSink->channels,
                         sinkBuffer3, wavSink->wordSizeBytes, wavSink->channels,
                         samplesOut / wavSink->channels, true
                     );
-                    wsize = writeWave(wavSink, sinkBuffer3, samplesOut);
+                    (void) writeWave(wavSink, sinkBuffer3, samplesOut, &wsize);
                 }
                 samplesIn = PaUtil_GetRingBufferReadAvailable(wavSinkRB);
+                if ((--maxWrites == 0) && (samplesIn > WAV_RING_BUF_SAMPLES / 2)) {
+                    if (context->wavSinkStats.slowWrites == 0) {
+                        syslog_print("WARNING: Slow WAV file writes");
+                    }
+                    context->wavSinkStats.slowWrites++;
+                }
             }
         } else {
             PaUtil_FlushRingBuffer(wavSinkRB);
         }
         xSemaphoreGive((SemaphoreHandle_t)wavSink->lock);
-        whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
+        whatToDo = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5));
     }
 }
 
@@ -207,7 +220,7 @@ int xferWavSinkAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
             );
         }
     } else {
-        wavSinkOverflow++;
+        context->wavSinkStats.overrun++;
     }
 
     memset(audio, 0, samplesIn * sizeof(SYSTEM_AUDIO_TYPE));
@@ -259,7 +272,7 @@ int xferWavSrcAudio(APP_CONTEXT *context, void *audio, CLOCK_DOMAIN cd,
         );
         *numChannels = wavSrc->channels;
     } else {
-        wavSrcUnderflow++;
+        context->wavSrcStats.underrun++;
         *numChannels = 0;
     }
 

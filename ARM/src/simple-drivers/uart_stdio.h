@@ -30,6 +30,8 @@
 
 void uart_stdio_init(sUART *uart);
 void uart_stdio_set_read_timeout(int timeout);
-void uart_stdio_set_mode(int mode);
+int uart_stdio_set_mode(int mode);
+int uart_stdio_read(unsigned char *ptr, int len);
+int uart_stdio_write(unsigned char *ptr, int len);
 
 #endif

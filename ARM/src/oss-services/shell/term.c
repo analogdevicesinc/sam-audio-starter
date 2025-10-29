@@ -103,15 +103,6 @@ void term_set_size( TERM_STATE *t, unsigned num_cols, unsigned num_lines )
   term_ansi(t, "8;%u;%ut", num_lines, num_cols);
 }
 
-void term_set_mode( TERM_STATE *t, int mode, int set )
-{
-    if ( set ) {
-        t->term_mode |= mode;
-    } else {
-        t->term_mode &= ~mode;
-    }
-}
-
 // Return the number of terminal lines
 unsigned term_get_lines(TERM_STATE *t)
 {
@@ -127,12 +118,11 @@ unsigned term_get_cols(TERM_STATE *t)
 // Write a character to the terminal
 void term_putch( TERM_STATE *t, char ch )
 {
-  if( ( ch == '\n' ) && ( t->term_mode & TERM_MODE_COOKED ) )
+  if( ch == '\n' )
   {
     if( t->term_cy < t->term_num_lines )
       t->term_cy ++;
     t->term_cx = 0;
-    t->term_out( '\r', t->usr );
   }
   t->term_out( ch, t->usr );
 }
@@ -170,12 +160,10 @@ int term_getch( TERM_STATE *t, int mode )
 {
   int ch;
 
-  ch = t->term_in( mode, t->usr );
-
-  if( ( ch != -1 ) && ( t->term_mode & TERM_MODE_COOKED ) )
-    return t->term_translate( t, ch, t->usr );
+  if( ( ch = t->term_in( mode, t->usr ) ) == -1 )
+    return -1;
   else
-    return ch;
+    return t->term_translate( t, ch, t->usr );
 }
 
 void term_init( TERM_STATE *t, unsigned lines, unsigned cols, p_term_out term_out_func,
@@ -189,7 +177,6 @@ void term_init( TERM_STATE *t, unsigned lines, unsigned cols, p_term_out term_ou
   t->term_translate = term_translate_func;
   t->usr = usr;
   t->term_cx = t->term_cy = 0;
-  t->term_mode = TERM_MODE_COOKED;
 }
 
 void term_deinit( TERM_STATE *t )

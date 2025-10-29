@@ -1,3 +1,5 @@
+Debug/
+Release/
 ALL/
 ARM/
 linker_log.xml
@@ -5,6 +7,7 @@ linker_log_SHARC0.xml
 linker_log_SHARC1.xml
 SAM-Audio-Starter-*.*xe
 SAM-Audio-Starter.ldr
+SAM-Audio-Starter-Full.ldr
 SHARC0/
 SHARC1/
 *.map

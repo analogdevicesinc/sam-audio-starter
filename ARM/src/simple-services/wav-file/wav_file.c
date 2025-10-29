@@ -179,6 +179,31 @@ static bool translateWaveFmt(WAVE_INFO *waveInfo, WAVEFORMATX *waveFormat, WAVE_
     return(true);
 }
 
+/*
+ * Seeking to data by reads instead of fseek() can help maintain
+ * underlying I/O buffer alignment improving overall wave file
+ * read/write performance.
+ */
+static void wavDataSeek(FILE *f, WAVE_INFO *waveInfo)
+{
+#ifdef WAV_DATA_SEEK_BY_FSEEK
+    fseek(f, SEEK_SET, waveInfo->dataOffset);
+#else
+    int offset, len, rlen;
+    char buf[32];
+    fseek(f, SEEK_SET, 0); offset = 0;
+    while (offset < waveInfo->dataOffset) {
+        len = waveInfo->dataOffset - offset;
+        len = len > sizeof(buf) ? sizeof(buf) : len;
+        rlen = fread(buf, 1, len, f);
+        if (rlen == 0) {
+            break;
+        }
+        offset += rlen;
+    }
+#endif
+}
+
 #define FOUND_NO_CHUNK   (0x00)
 #define FOUND_FMT_CHUNK  (0x01)
 #define FOUND_DATA_CHUNK (0x02)
@@ -321,7 +346,7 @@ bool openWave(WAV_FILE *wf)
         if (wf->isSrc) {
             ok = isWave(wf);
             if (ok) {
-                fseek(wf->f, wf->waveInfo.dataOffset, SEEK_SET);
+                wavDataSeek(wf->f, &wf->waveInfo);
                 wf->channels = wf->waveInfo.numChannels;
                 wf->sampleRate = wf->waveInfo.sampleRate;
                 wf->frameSizeBytes = wf->waveInfo.blockAlign;
@@ -360,10 +385,13 @@ void closeWave(WAV_FILE *wf)
         WAVE_FILE_FREE(wf->fileBuf); wf->fileBuf = NULL;
     }
     wf->enabled = false;
+    wf->loopCount = 0;
+    wf->loopCountTotal = 0;
     wf->channels = 0;
+    wf->dataSize = 0;
 }
 
-size_t readWave(WAV_FILE *wf, void *buf, size_t samples)
+bool readWave(WAV_FILE *wf, void *buf, size_t samples, size_t *rsize_out)
 {
     size_t size;
     size_t rsize;
@@ -393,14 +421,25 @@ size_t readWave(WAV_FILE *wf, void *buf, size_t samples)
     }
 
     if (resetData) {
-        fseek(wf->f, wf->waveInfo.dataOffset, SEEK_SET);
-        wf->dataOffset = 0;
+        if(wf->loopCount > 0) {
+            wf->loopCount--;
+        }
+        if(wf->loopCount != 0) {
+            wavDataSeek(wf->f, &wf->waveInfo);
+            wf->dataOffset = 0;
+        } else {
+            closeWave(wf);
+            ok = false;
+        }
     }
 
-    return(ok ? rsize : -1);
+    if(rsize_out != NULL) {
+        *rsize_out = (ok ? rsize : 0 );
+    }
+    return ok;
 }
 
-size_t writeWave(WAV_FILE *wf, void *buf, size_t samples)
+bool writeWave(WAV_FILE *wf, void *buf, size_t samples, size_t *wsize_out)
 {
     size_t wsize;
     bool ok;
@@ -414,5 +453,8 @@ size_t writeWave(WAV_FILE *wf, void *buf, size_t samples)
         wf->dataSize += wsize;
     }
 
-    return (ok ? wsize : -1);
+    if(wsize_out != NULL) {
+        *wsize_out = (ok ? wsize : 0);
+    }
+    return ok;
 }

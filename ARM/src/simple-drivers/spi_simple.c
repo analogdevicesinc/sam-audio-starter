@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -115,6 +115,14 @@ struct sSPI {
     ///< Reference to the active device
     sSPIPeriph *device;
 
+    ///< Cache aligned xfers
+    uint8_t *rxAligned;
+    uint8_t *txAligned;
+    sSPIXfer alignedXfer[3];
+    uint8_t alignedXfers;
+    uint8_t alignedIdx;
+    bool aligned;
+
 #ifdef FREE_RTOS
     SemaphoreHandle_t portLock;
     SemaphoreHandle_t portBlock;
@@ -140,6 +148,12 @@ struct sSPIPeriph {
 
 /* SPI port context containers */
 static sSPI spiContext[SPI_END];
+
+__attribute__ ((aligned(ADI_CACHE_LINE_LENGTH)))
+static uint8_t RX_ALIGNED[SPI_END][ADI_CACHE_LINE_LENGTH];
+
+__attribute__ ((aligned(ADI_CACHE_LINE_LENGTH)))
+static uint8_t TX_ALIGNED[SPI_END][ADI_CACHE_LINE_LENGTH];
 
 /* SPI peripheral device context containers */
 static sSPIPeriph spiDeviceContext[SPI_SIMPLE_MAX_DEVICES];
@@ -669,6 +683,8 @@ SPI_SIMPLE_RESULT spi_init(void)
         }
 #endif
 
+        spi->rxAligned = RX_ALIGNED[port];
+        spi->txAligned = TX_ALIGNED[port];
         spi->open = false;
 
     }
@@ -947,13 +963,133 @@ static void spi_setup_port_device(sSPIPeriph *deviceHandle, uint16_t len, void *
     *spi->pREG_SPI_CTL = reg | ENUM_SPI_CTL_EN;
 }
 
+void spi_align_long_xfer(sSPI *spi, sSPIXfer *xfer)
+{
+    uintptr_t idx1, idx2;
+    sSPIXfer *axfer;
+    void *rxtx;
+
+    /* Select a buffer for alignment calculation */
+    rxtx = xfer->rx ? xfer->rx : xfer->tx;
+
+    /* First alignment index (round up to the next cache line) */
+    idx1 = ((uintptr_t)rxtx + ADI_CACHE_LINE_LENGTH) & ~(ADI_CACHE_LINE_LENGTH - 1);
+    idx1 -= (uintptr_t)rxtx;
+
+    /* Last alignment index (round down to the previous cache line) */
+    idx2 = ((uintptr_t)rxtx + xfer->len - 1) & ~(ADI_CACHE_LINE_LENGTH - 1);
+    idx2 -= (uintptr_t)rxtx;
+
+    /* Beginning until first alignment idx */
+    axfer = &spi->alignedXfer[0];
+    if (xfer->rx) {
+        axfer->rx = xfer->rx;
+    }
+    if (xfer->tx) {
+        axfer->tx = xfer->tx;
+    }
+    axfer->len = idx1;
+    axfer->flags |= 0x01;
+
+    /* Middle aligned area (if any) */
+    if (idx2 > idx1) {
+        axfer = &spi->alignedXfer[++spi->alignedXfers];
+        if (xfer->rx) {
+            axfer->rx = (void *)((uintptr_t)xfer->rx + idx1);
+        }
+        if (xfer->tx) {
+            axfer->tx = (void *)((uintptr_t)xfer->tx + idx1);
+        }
+        axfer->len = idx2 - idx1;
+    }
+
+    /* Last alignment idx to end */
+    axfer = &spi->alignedXfer[++spi->alignedXfers];
+    if (xfer->rx) {
+        axfer->rx = (void *)((uintptr_t)xfer->rx + idx2);
+    }
+    if (xfer->tx) {
+        axfer->tx = (void *)((uintptr_t)xfer->tx + idx2);
+    }
+    axfer->len = xfer->len - idx2;
+    axfer->flags |= 0x01;
+
+    /* Replace user tansfer with first aligned transfer */
+    axfer = &spi->alignedXfer[0];
+    if (axfer->rx) {
+        xfer->rx = spi->rxAligned;
+    }
+    if (axfer->tx) {
+        memcpy(spi->txAligned, axfer->tx, axfer->len);
+        xfer->tx = spi->txAligned;
+    }
+    xfer->len = axfer->len;
+}
+
+static void spi_align_xfer(sSPI *spi, sSPIXfer *xfer)
+{
+    uint16_t len = xfer->len;
+    void *rx = xfer->rx;
+    void *tx = xfer->tx;
+    sSPIXfer *axfer;
+    bool aligned;
+
+    /*
+     * See if buffers are OK for direct DMA - All must start and end
+     * on a cache line boundary.  If not, align the ends of the
+     * transfer using driver aligned buffers.
+     */
+    aligned = true;
+    if (rx) {
+        aligned &= ((uintptr_t)rx & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
+        aligned &= (((uintptr_t)rx + len) & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
+    }
+    if (tx) {
+        aligned &= ((uintptr_t)tx & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
+        aligned &= (((uintptr_t)tx + len) & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
+    }
+
+    /* If not aligned, rearrange xfer to bring into alignment */
+    if (!aligned) {
+        memset(spi->alignedXfer, 0, sizeof(spi->alignedXfer));
+        spi->alignedIdx = 0; spi->alignedXfers = 0;
+        if (len <= ADI_CACHE_LINE_LENGTH) {
+            if (rx) {
+                xfer->rx = spi->rxAligned;
+            }
+            if (tx) {
+                memcpy(spi->txAligned, tx, len);
+                xfer->tx = spi->txAligned;
+            }
+            axfer = &spi->alignedXfer[0];
+            axfer->rx = rx;
+            axfer->len = len;
+            axfer->flags |= 0x01;
+        } else {
+            spi_align_long_xfer(spi, xfer);
+        }
+    }
+
+    spi->aligned = aligned;
+}
+
+static void spi_send_next(sSPI *spi, sSPIXfer *xfer)
+{
+    /* Configure the DMA */
+    spi_setup_dma(spi, xfer->len, xfer->rx, xfer->tx);
+
+    /* Set the SPI IO mode (normal, dual, quad) */
+    spi_apply_flags((uint32_t *)spi->pREG_SPI_CTL, xfer->flags);
+
+    /* Initiate the next transfer */
+    spi_setup_port_rxtx(spi, xfer->len, xfer->rx, xfer->tx);
+}
+
 static void spi_stat_irq(uint32_t id, void *usrPtr)
 {
     sSPI *spi = (sSPI *)usrPtr;
-    void *rx;
-    void *tx;
-    uint16_t len;
-    uint32_t flags;
+    sSPIXfer *xfer, *axfer;
+    void *rx; uint16_t len;
 #ifdef FREE_RTOS
     BaseType_t rtosResult;
     BaseType_t contextSwitch = pdFALSE;
@@ -968,6 +1104,36 @@ static void spi_stat_irq(uint32_t id, void *usrPtr)
         len = spi->xfers[spi->xferIndex].len;
         flushStart = (uint8_t *)rx;  flushEnd = flushStart + len;
         flush_data_buffer(flushStart, flushEnd, ADI_FLUSH_DATA_INV);
+        axfer = &spi->alignedXfer[spi->alignedIdx];
+        if (!spi->aligned && (axfer->flags & 0x01)) {
+            memcpy(axfer->rx, rx, len);
+        }
+    }
+
+    /* Unaligned transfer handling */
+    if (!spi->aligned && spi->alignedXfers) {
+        spi->alignedXfers--; spi->alignedIdx++;
+        axfer = &spi->alignedXfer[spi->alignedIdx];
+        xfer = &spi->xfers[spi->xferIndex];
+        if (axfer->flags & 0x01) {
+            if (axfer->rx) {
+                xfer->rx = spi->rxAligned;
+            }
+            if (axfer->tx) {
+                memcpy(spi->txAligned, axfer->tx, axfer->len);
+                xfer->tx = spi->txAligned;
+            }
+        } else {
+            if (axfer->rx) {
+                xfer->rx = axfer->rx;
+            }
+            if (axfer->tx) {
+                xfer->tx = axfer->tx;
+            }
+        }
+        xfer->len = axfer->len;
+        spi_send_next(spi, xfer);
+        return;
     }
 
     if (spi->xferCount == 0) {
@@ -982,20 +1148,14 @@ static void spi_stat_irq(uint32_t id, void *usrPtr)
         spi->xferIndex++;
         spi->xferCount--;
 
-        /* Set some convenience variables */
-        rx = spi->xfers[spi->xferIndex].rx;
-        tx = spi->xfers[spi->xferIndex].tx;
-        len = spi->xfers[spi->xferIndex].len;
-        flags = spi->xfers[spi->xferIndex].flags;
+        /* Get current xfer */
+        xfer = &spi->xfers[spi->xferIndex];
 
-        /* Configure the DMA */
-        spi_setup_dma(spi, len, rx, tx);
+        /* Align transfer */
+        spi_align_xfer(spi, xfer);
 
-        /* Set the SPI IO mode (normal, dual, quad) */
-        spi_apply_flags((uint32_t *)spi->pREG_SPI_CTL, flags);
-
-        /* Initiate the next transfer */
-        spi_setup_port_rxtx(spi, len, rx, tx);
+        /* Send */
+        spi_send_next(spi, xfer);
     }
 }
 
@@ -1014,6 +1174,25 @@ SPI_SIMPLE_RESULT spi_batch_xfer(sSPIPeriph *deviceHandle, uint16_t numXfers, sS
     if (numXfers == 0) {
         return(SPI_SIMPLE_ERROR);
     }
+    
+    /* Confirm rx/tx length requirement */
+    for (uint16_t i = 0; i < numXfers; i++) {
+        sSPIXfer *xfer = xfers + i;
+        if (xfer->len == 0) {
+            return(SPI_SIMPLE_ERROR);
+        }
+    }
+
+    /* Confirm rx/tx buffer cache alignment */
+    for (uint16_t i = 0; i < numXfers; i++) {
+        sSPIXfer *xfer = xfers + i;
+        if (xfer->rx && xfer->tx && (xfer->len > ADI_CACHE_LINE_LENGTH)) {
+            if ( ((uintptr_t)xfer->rx & (ADI_CACHE_LINE_LENGTH - 1)) !=
+                 ((uintptr_t)xfer->tx & (ADI_CACHE_LINE_LENGTH - 1)) ) {
+                return(SPI_INVALID_ALIGNMENT);
+            }
+        }
+    }
 
     /* Lock the SPI port */
 #ifdef FREE_RTOS
@@ -1030,6 +1209,9 @@ SPI_SIMPLE_RESULT spi_batch_xfer(sSPIPeriph *deviceHandle, uint16_t numXfers, sS
     spi->xfers = xfers;
     spi->xferIndex = 0;
     spi->xferCount = numXfers - 1;
+
+    /* Align the transfer */
+    spi_align_xfer(spi, &xfers[spi->xferIndex]);
 
     /* Set some convenience variables */
     len = xfers[spi->xferIndex].len;

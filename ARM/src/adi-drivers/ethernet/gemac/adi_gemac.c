@@ -1227,9 +1227,7 @@ void EMACInterruptHandler(uint32_t IID, void *pCBParm)
     int x;
 
 #ifdef FEATURE_CPU_LOAD
-    uint32_t inCycles, outCycles;
-    /* Track ISR cycle count for CPU load */
-    inCycles = cpuLoadGetTimeStamp();
+    cpuLoadISREnter();
 #endif
 
     SYS_SSYNC;
@@ -1353,9 +1351,7 @@ void EMACInterruptHandler(uint32_t IID, void *pCBParm)
     }
 
 #ifdef FEATURE_CPU_LOAD
-    /* Track ISR cycle count for CPU load */
-    outCycles = cpuLoadGetTimeStamp();
-    cpuLoadIsrCycles(outCycles - inCycles);
+    cpuLoadISRExit();
 #endif
 }
 

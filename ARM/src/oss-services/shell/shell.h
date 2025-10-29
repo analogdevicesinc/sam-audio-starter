@@ -17,6 +17,8 @@
 #ifndef __SHELL_H__
 #define __SHELL_H__
 
+#include <stdio.h>
+
 #include "shell_cfg.h"
 #include "term.h"
 
@@ -178,10 +180,12 @@ typedef struct SHELL_CONTEXT {
     size_t len;                        /**< Linenoise current line length */
     size_t cols;                       /**< Linenoise terminal line length */
     int hidden;                        /**< Hide text */
+    int redirect;                      /**< Redirect shell output */
+    FILE *redirectFile;                /**< Redirect shell output file */
     TERM_STATE t;                      /**< Terminal state */
     void *usr;                         /**< User data pointer */
     int interactive;                   /**< Interactive shell */
-	unsigned *uHelpIndicies;           /**< Alphabetized help indicies */
+    unsigned *uHelpIndicies;           /**< Alphabetized help indicies */
 } SHELL_CONTEXT;
 
 /*!****************************************************************

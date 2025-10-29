@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2023 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -185,7 +185,7 @@ typedef ADI_EMSI_GENERAL_TRANS_TYPE ADI_xSI_TRANSFER;
 #define MAX_xSI_TRANSFER_COUNT (ADI_xSI_MAX_TRANSFER_BYTES / 512)
 
 struct sSDCARD {
-    uint8_t alignedData[512];
+    uint8_t alignedData[MAX_xSI_TRANSFER_COUNT * 512];
 #ifdef ADI_EMSI
     uint8_t emsiMemory[ADI_EMSI_DRIVER_MEMORY_SIZE];
     ADI_xSI_RESULT cardPresent;
@@ -511,47 +511,15 @@ abort:
     return(result);
 }
 
-static SDCARD_SIMPLE_RESULT
-sdcard_writeUnaligned(sSDCARD *sdcard, void *data, uint32_t sector, uint32_t count)
-{
-    SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
-    ADI_xSI_RESULT xsiResult = ADI_xSI_SUCCESS;
-    uint8_t *inData;
-    unsigned i;
-
-    i = 0;
-    inData = (uint8_t *)data;
-
-    SDCARD_LOCK();
-
-    do {
-
-        memcpy(sdcard->alignedData, inData, 512);
-        result = sdcard_submitDataTransfer(sdcard,
-            SD_MMC_CMD_WRITE_BLOCK, false, sdcard->alignedData, sector, 1, 512, true
-        );
-        if (result != SDCARD_SIMPLE_SUCCESS) { goto abort; }
-
-        count--; sector++; i++; inData += 512;
-
-    } while (count);
-
-abort:
-    SDCARD_UNLOCK();
-    if (xsiResult != ADI_xSI_SUCCESS) {
-        result = SDCARD_SIMPLE_ERROR;
-    }
-
-    return(result);
-
-}
-
 SDCARD_SIMPLE_RESULT sdcard_write(sSDCARD *sdcard, void *data, uint32_t sector, uint32_t count)
 {
     SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
     ADI_xSI_RESULT xsiResult = ADI_xSI_SUCCESS;
     uint32_t transferCount;
+    uint8_t *dataPtr;
+    uint8_t *outData;
     uint16_t cmd;
+    bool aligned;
 
     if ((sdcard == NULL) || (sdcard->type == SDCARD_UNUSABLE_CARD)) {
         return(SDCARD_SIMPLE_ERROR);
@@ -562,23 +530,28 @@ SDCARD_SIMPLE_RESULT sdcard_write(sSDCARD *sdcard, void *data, uint32_t sector, 
     }
 
     /* Must send unaligned data through an aligned buffer */
-    if ((uintptr_t)data & (sizeof(uint32_t) - 1)) {
-        result = sdcard_writeUnaligned(sdcard, data, sector, count);
-        return(result);
-    }
+    aligned = ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
 
     SDCARD_LOCK();
 
+    dataPtr = (uint8_t *)data;
     do {
 
         transferCount = (count > MAX_xSI_TRANSFER_COUNT) ?
             MAX_xSI_TRANSFER_COUNT : count;
 
+        if (aligned) {
+            outData = dataPtr;
+        } else {
+            memcpy(sdcard->alignedData, dataPtr, transferCount * 512);
+            outData = sdcard->alignedData;
+        }
+
         cmd = (transferCount > 1) ?
             SD_MMC_CMD_WRITE_MULTIPLE_BLOCK : SD_MMC_CMD_WRITE_BLOCK;
 
         result = sdcard_submitDataTransfer(sdcard,
-            cmd, false, data, sector, transferCount, 512, true
+            cmd, false, outData, sector, transferCount, 512, true
         );
         if (result != SDCARD_SIMPLE_SUCCESS) { goto abort; }
 
@@ -590,6 +563,7 @@ SDCARD_SIMPLE_RESULT sdcard_write(sSDCARD *sdcard, void *data, uint32_t sector, 
         }
 
         count -= transferCount; sector += transferCount;
+        dataPtr += transferCount * 512;
 
     } while (count);
 
@@ -605,48 +579,15 @@ abort:
 /***********************************************************************
  * Read
  ***********************************************************************/
-static SDCARD_SIMPLE_RESULT
-sdcard_readUnaligned(sSDCARD *sdcard, void *data, uint32_t sector, uint32_t count)
-{
-    SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
-    ADI_xSI_RESULT xsiResult = ADI_xSI_SUCCESS;
-    uint8_t *inData;
-    unsigned i;
-
-    i = 0;
-    inData = (uint8_t *)data;
-
-    SDCARD_LOCK();
-
-    do {
-
-        result = sdcard_submitDataTransfer(sdcard,
-            SD_MMC_CMD_READ_BLOCK, true, sdcard->alignedData, sector, 1, 512, true
-        );
-        if (result != SDCARD_SIMPLE_SUCCESS) { goto abort; }
-
-        memcpy(inData, sdcard->alignedData, 512);
-
-        count--; sector++; i++; inData += 512;
-
-    } while (count);
-
-abort:
-    SDCARD_UNLOCK();
-    if (xsiResult != ADI_xSI_SUCCESS) {
-        result = SDCARD_SIMPLE_ERROR;
-    }
-
-    return(result);
-
-}
-
 SDCARD_SIMPLE_RESULT sdcard_read(sSDCARD *sdcard, void *data, uint32_t sector, uint32_t count)
 {
     SDCARD_SIMPLE_RESULT result = SDCARD_SIMPLE_SUCCESS;
     ADI_xSI_RESULT xsiResult = ADI_xSI_SUCCESS;
     uint32_t transferCount;
+    uint8_t *dataPtr;
+    uint8_t *inData;
     uint16_t cmd;
+    bool aligned;
 
     if ((sdcard == NULL) || (sdcard->type == SDCARD_UNUSABLE_CARD)) {
         return(SDCARD_SIMPLE_ERROR);
@@ -657,23 +598,27 @@ SDCARD_SIMPLE_RESULT sdcard_read(sSDCARD *sdcard, void *data, uint32_t sector, u
     }
 
     /* Must send unaligned data through an aligned buffer */
-    if ((uintptr_t)data & (sizeof(uint32_t) - 1)) {
-        result = sdcard_readUnaligned(sdcard, data, sector, count);
-        return(result);
-    }
+    aligned = ((uintptr_t)data & (ADI_CACHE_LINE_LENGTH - 1)) == 0;
 
     SDCARD_LOCK();
 
+    dataPtr = (uint8_t *)data;
     do {
 
         transferCount = (count > MAX_xSI_TRANSFER_COUNT) ?
             MAX_xSI_TRANSFER_COUNT : count;
 
+        if (aligned) {
+            inData = dataPtr;
+        } else {
+            inData = sdcard->alignedData;
+        }
+
         cmd = (transferCount > 1) ?
             SD_MMC_CMD_READ_MULTIPLE_BLOCK : SD_MMC_CMD_READ_BLOCK;
 
         result = sdcard_submitDataTransfer(sdcard,
-            cmd, true, data, sector, transferCount, 512, true
+            cmd, true, inData, sector, transferCount, 512, true
         );
         if (result != SDCARD_SIMPLE_SUCCESS) { goto abort; }
 
@@ -684,7 +629,12 @@ SDCARD_SIMPLE_RESULT sdcard_read(sSDCARD *sdcard, void *data, uint32_t sector, u
             if (xsiResult != ADI_xSI_SUCCESS) { goto abort; }
         }
 
+        if (!aligned) {
+            memcpy(dataPtr, sdcard->alignedData, transferCount * 512);
+        }
+
         count -= transferCount; sector += transferCount;
+        dataPtr += transferCount * 512;
 
     } while (count);
 

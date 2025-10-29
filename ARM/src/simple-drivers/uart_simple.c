@@ -257,7 +257,7 @@ static void uart_status_irq(uint32_t id, void *usrPtr)
 
 }
 
-UART_SIMPLE_RESULT uart_read(sUART *uart, uint8_t *in, uint8_t *inLen)
+UART_SIMPLE_RESULT uart_read(sUART *uart, uint8_t *in, uint16_t *inLen)
 {
     UART_SIMPLE_RESULT result = UART_SIMPLE_SUCCESS;
     bool empty;
@@ -330,7 +330,7 @@ UART_SIMPLE_RESULT uart_read(sUART *uart, uint8_t *in, uint8_t *inLen)
 }
 
 
-UART_SIMPLE_RESULT uart_write(sUART *uart, uint8_t *out, uint8_t *outLen)
+UART_SIMPLE_RESULT uart_write(sUART *uart, uint8_t *out, uint16_t *outLen)
 {
     UART_SIMPLE_RESULT result = UART_SIMPLE_SUCCESS;
     int i;

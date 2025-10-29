@@ -86,6 +86,10 @@ static void processAudio(IPC_MSG_PROCESS_AUDIO *process)
         out += sink->numChannels;
     }
 
+    /* Clear the contents of src/in buffer */
+    memset(src->data, 0,
+                src->numChannels * src->numFrames * src->wordSize);
+
     /* Invalidate all streams associated with this clock domain */
     for (i = 0; i < IPC_STREAM_ID_MAX; i++) {
         stream = streamInfo[i];

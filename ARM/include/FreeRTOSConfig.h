@@ -28,7 +28,16 @@
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
+#if defined(__ADSPSC589_FAMILY__)
 #include <defSC589.h>
+#elif defined(__ADSPSC594_FAMILY__)
+#include <defSC594.h>
+#elif defined(__ADSPSC598_FAMILY__)
+#include <defSC598.h>
+#else
+#error Unsupported processor!
+#endif
+
 #include "clocks.h"
 
 /*-----------------------------------------------------------
@@ -74,9 +83,6 @@ be located in the (faster) on-chip RAM.  When this parameter is set to 1 the
 application must define an array using the name and size as follows below, but
 is free to locate the array in any suitable RAM region (the faster the better as
 the stacks used by the tasks are allocated from this array):
-
-uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
-
 */
 #define configAPPLICATION_ALLOCATED_HEAP        0
 #define configSUPPORT_STATIC_ALLOCATION         0
@@ -110,12 +116,12 @@ uint8_t ucHeap[ configTOTAL_HEAP_SIZE ];
  * The minimal OSAL expects its TLS pointers to start at
  * zero.
  */
-#define configNUM_APP_TLS_POINTERS \
-    (configNUM_THREAD_LOCAL_STORAGE_POINTERS / 2)
-#define configSTART_APP_TLS_POINTERS \
-    (configNUM_THREAD_LOCAL_STORAGE_POINTERS / 2)
 #define configNUM_OSAL_TLS_POINTERS \
     (configNUM_THREAD_LOCAL_STORAGE_POINTERS / 2)
+#define configNUM_APP_TLS_POINTERS \
+    (configNUM_THREAD_LOCAL_STORAGE_POINTERS - configNUM_OSAL_TLS_POINTERS)
+#define configSTART_APP_TLS_POINTERS \
+    (configNUM_OSAL_TLS_POINTERS)
 
 /* Pre-defined application TLS pointers */
 #define configSTDIO_APP_TLS_POINTER (configSTART_APP_TLS_POINTERS + 0)

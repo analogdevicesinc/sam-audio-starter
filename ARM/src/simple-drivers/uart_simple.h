@@ -289,13 +289,13 @@ UART_SIMPLE_RESULT uart_setGetTimeFn(sUART *uartHandle,
  *
  * @param [in]  uartHandle  A handle to a UART port
  * @param [out] in          Pointer to buffer to receive data
- * @param [in,out] inLen       Number of bytes to read (in).
- *                             Number of bytes actually read (out)
+ * @param [in,out] inLen    Number of bytes to read (in).
+ *                          Number of bytes actually read (out)
  *
  * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
  *         an error.
  ******************************************************************/
-UART_SIMPLE_RESULT uart_read(sUART *uartHandle, uint8_t *in, uint8_t *inLen);
+UART_SIMPLE_RESULT uart_read(sUART *uartHandle, uint8_t *in, uint16_t *inLen);
 
 /*!****************************************************************
  * @brief Simple UART write.
@@ -317,7 +317,7 @@ UART_SIMPLE_RESULT uart_read(sUART *uartHandle, uint8_t *in, uint8_t *inLen);
  * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
  *         an error.
  ******************************************************************/
-UART_SIMPLE_RESULT uart_write(sUART *uartHandle, uint8_t *out, uint8_t *outLen);
+UART_SIMPLE_RESULT uart_write(sUART *uartHandle, uint8_t *out, uint16_t *outLen);
 
 #ifdef __cplusplus
 } // extern "C"

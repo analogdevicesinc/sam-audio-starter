@@ -184,7 +184,7 @@ static FS_DEVMAN_DIRENT *dev_spiffs_readdir(void *dir, void *pdata)
         dirent = &ddir->dirent;
         dirent->fsize = pe->size;
         dirent->ftime = 0;
-        dirent->fdate = 0;
+        dirent->fdate = (1 << 5) | 1;
         dirent->flags = 0;
         size = strlen((const char *)pe->name)+1;
         if (dirent->fname) {
@@ -241,7 +241,7 @@ static int dev_spiffs_stat(const char* fname, FS_DEVMAN_STAT *stat, void *pdata)
     if (result == SPIFFS_OK) {
         stat->fsize = ss.size;
         stat->ftime = 0;
-        stat->fdate = 1 << 5;
+        stat->fdate = (1 << 5) | 1;
         stat->flags = 0;
         if (ss.type == SPIFFS_TYPE_DIR) {
             stat->flags |= FS_DEVMAN_STAT_FLAG_DIR;

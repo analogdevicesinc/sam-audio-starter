@@ -16,6 +16,7 @@
 #include "shell_printf.h"
 #include "term.h"
 #include "shell.h"
+#include "syslog.h"
 
 /* Use lightweight printf */
 #include "printf.h"
@@ -29,23 +30,35 @@ int shell_vprintf(SHELL_CONTEXT *ctx, const char *fmt, va_list ap)
     va = ap;
     str = SHELL_MALLOC(len + 1);
     vsnprintf(str, len + 1, fmt, va);
-    term_putstr(&ctx->t, str, len);
+    switch (ctx->redirect) {
+        case 0:
+            break;
+        case 1:
+            term_putstr(&ctx->t, str, len);
+            break;
+        case 2:
+            syslog_print(str);
+            break;
+        case 3:
+            if (ctx->redirectFile) {
+                fwrite(str, 1, strlen(str), ctx->redirectFile);
+            }
+            break;
+        default:
+            term_putstr(&ctx->t, str, len);
+            break;
+
+    }
     SHELL_FREE(str);
     return(len);
 }
 
-int shell_printf(SHELL_CONTEXT *ctx, const char* fmt, ...)
+int shell_printf(SHELL_CONTEXT *ctx, const char *fmt, ...)
 {
-    va_list va;
-    char *str;
-    va_start(va, fmt);
-    int len = vsnprintf(NULL, 0, fmt, va);
-    va_end(va);
-    va_start(va, fmt);
-    str = SHELL_MALLOC(len + 1);
-    vsnprintf(str, len + 1, fmt, va);
-    va_end(va);
-    term_putstr(&ctx->t, str, len);
-    SHELL_FREE(str);
+    int len;
+    va_list args;
+    va_start(args, fmt);
+    len = shell_vprintf(ctx, fmt, args);
+    va_end(args);
     return(len);
 }

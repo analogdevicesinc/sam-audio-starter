@@ -1,5 +1,5 @@
 #Set your CCES version and root here
-CCES_VERSION=2.12.0
+CCES_VERSION=2.12.1
 DRIVE=c
 
 #Set both options for legacy and new path versions

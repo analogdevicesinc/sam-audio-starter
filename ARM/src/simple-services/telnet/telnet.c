@@ -26,6 +26,9 @@
 #include "telnet_cfg.h"
 #include "telnet.h"
 #include "shell.h"
+#include "uart_stdio.h"
+#include "uart_stdio_io.h"
+#include "cces_hacks.h"
 
 #include "lwip/opt.h"
 #include "lwipopts.h"
@@ -44,10 +47,11 @@ typedef struct TELNET_CONTEXT {
     int sock;
     fd_set fdset;
     in_addr_t clientAddr;
-    struct timeval timeout;
+    int timeout;
     telnet_t *libtelnet;
     char c;
     bool cValid;
+    int mode;
 } TELNET_CONTEXT;
 
 static void telnet_terminate(TELNET_CONTEXT *t)
@@ -66,15 +70,22 @@ static void telnet_terminate(TELNET_CONTEXT *t)
         SHELL_FREE(t->shell);
     }
 
+    /* Free remaining resources */
     SHELL_FREE(t);
-
+    THREAD_FREE_STDIO();
     vTaskDelete(NULL);
 }
 
 static void telnet_term_out(char data, void *usr)
 {
     TELNET_CONTEXT *t = (TELNET_CONTEXT *)usr;
-    telnet_send(t->libtelnet, &data, sizeof(data));
+
+    if ((data == '\n') && (t->mode == UART_STDIO_IO_MODE_COOKED)) {
+        static const char crlf[] = "\r\n";
+        telnet_send(t->libtelnet, crlf, sizeof(crlf)-1);
+    } else {
+        telnet_send(t->libtelnet, &data, sizeof(data));
+    }
 }
 
 void libtelnetEvent(telnet_t *telnet, telnet_event_t *event, void *user_data)
@@ -116,6 +127,12 @@ static int telnet_term_in(int mode, void *usr)
     int n;
     char c = -1;
 
+    if (mode == STDIO_TIMEOUT_NONE) {
+        mode = TERM_INPUT_DONT_WAIT;
+    } else if (mode == STDIO_TIMEOUT_INF) {
+        mode = TERM_INPUT_WAIT;
+    }
+
     if (mode == TERM_INPUT_DONT_WAIT) {
         timeout.tv_sec = 0;
         timeout.tv_usec = 0;
@@ -156,6 +173,43 @@ static int telnet_term_in(int mode, void *usr)
     return(c);
 }
 
+int telnet_stdout(unsigned char *ptr, int len, void *usr)
+{
+    TELNET_CONTEXT *t = (TELNET_CONTEXT *)usr;
+    int i;
+    for (i = 0; i < len; i++) {
+        telnet_term_out(ptr[i], t);
+    }
+    return(len);
+}
+
+int telnet_stdin(unsigned char *buffer, int len, void *usr)
+{
+    TELNET_CONTEXT *t = (TELNET_CONTEXT *)usr;
+    int rlen = 0;
+    int c;
+    c = telnet_term_in(t->mode, t);
+    if (c >= 0) {
+        buffer[0] = c;
+        rlen = 1;
+    }
+    return(rlen);
+}
+
+void telnet_set_read_timeout(int timeout, void *usr)
+{
+    TELNET_CONTEXT *t = (TELNET_CONTEXT *)usr;
+    t->timeout = timeout;
+}
+
+int telnet_set_mode(int mode, void *usr)
+{
+    TELNET_CONTEXT *t = (TELNET_CONTEXT *)usr;
+    int oldMode = t->mode;
+    t->mode = mode;
+    return(oldMode);
+}
+
 static const telnet_telopt_t telopts[] = {
     { TELNET_TELOPT_ECHO,      TELNET_WILL, TELNET_DONT },
     { TELNET_TELOPT_SGA,       TELNET_WILL, TELNET_DO   },
@@ -167,8 +221,22 @@ portTASK_FUNCTION(telnetClientTask, pvParameters)
 {
     TELNET_CONTEXT *t = (TELNET_CONTEXT *)pvParameters;
 
+    UART_STDIO_IO telnetIO = {
+        .out = telnet_stdout,
+        .in = telnet_stdin,
+        .set_read_timeout = telnet_set_read_timeout,
+        .set_mode = telnet_set_mode,
+        .usr = t
+    };
+
+    /* This thread uses stdio */
+    THREAD_INIT_STDIO();
+
     /* Create a shell context */
     t->shell = SHELL_CALLOC(1, sizeof(*t->shell));
+
+    /* Set crlf mode */
+    t->mode = UART_STDIO_IO_MODE_COOKED;
 
     /* Create a libtelnet context */
     t->libtelnet = telnet_init(
@@ -188,6 +256,11 @@ portTASK_FUNCTION(telnetClientTask, pvParameters)
 
     /* Initialize the shell */
     shell_init(t->shell, telnet_term_out, telnet_term_in, SHELL_MODE_BLOCKING, (void *)t);
+
+    /* Store telnet I/O context in TLS */
+    vTaskSetThreadLocalStoragePointer(
+        NULL, configSTDIO_APP_TLS_POINTER, (void *)&telnetIO
+    );
 
     /* Drop into the shell */
     shell_start(t->shell);
@@ -224,7 +297,7 @@ portTASK_FUNCTION(telnetTask, pvParameters)
             t->clientAddr = sockname.sin_addr.s_addr;
             t->sock = sock;
             xTaskCreate(telnetClientTask, "TelnetClientTask", STARTUP_TASK_STACK_SIZE,
-                        t, STARTUP_TASK_LOW_PRIORITY, NULL);
+                t, STARTUP_TASK_LOW_PRIORITY, NULL);
         }
     }
 }
@@ -232,6 +305,5 @@ portTASK_FUNCTION(telnetTask, pvParameters)
 void telnet_start(APP_CONTEXT *context)
 {
     xTaskCreate(telnetTask, "TelnetTask", GENERIC_TASK_STACK_SIZE,
-                NULL, STARTUP_TASK_LOW_PRIORITY,
-                &context->telnetTaskHandle);
+        NULL, STARTUP_TASK_LOW_PRIORITY, &context->telnetTaskHandle);
 }

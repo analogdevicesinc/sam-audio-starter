@@ -67,7 +67,8 @@
 #include "ipc.h"
 #include "pushbutton.h"
 #include "exception.h"
-#include "si3536.h" 
+#include "si3536.h"
+#include "cces_hacks.h"
 
 /* Application context */
 APP_CONTEXT mainAppContext;
@@ -302,7 +303,7 @@ static void sdcardCheck(APP_CONTEXT *context)
                         cardName,
                         (unsigned long long)sdInfo.capacity
                     );
-                    fs = umm_malloc(sizeof(*fs));
+                    fs = umm_malloc_aligned(sizeof(*fs), ADI_CACHE_LINE_LENGTH);
                     fatResult = f_mount(fs, SDCARD_VOL_NAME, 1);
                     if (fatResult == FR_OK) {
                         syslog_printf("%s: FatFs mounted", cardName);
@@ -323,7 +324,7 @@ static void sdcardCheck(APP_CONTEXT *context)
                 } else {
                     syslog_printf("%s: FatFs error (%d)!", cardName, fatResult);
                 }
-                umm_free(fs);
+                umm_free_aligned(fs);
                 fs = NULL;
             }
             sdcard_stop(context->sdcardHandle);
@@ -480,6 +481,9 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     FS_DEVMAN_RESULT fsdResult;
     s32_t spiffsResult;
 
+    /* This thread uses stdio */
+    THREAD_INIT_STDIO();
+
     /* Install exception handlers */
     exception_init();
 
@@ -543,7 +547,7 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 
     /* Get the SAM Version */
     context->samVersion = sam_hw_version(context);
-    
+
     /* Reset the audio system MCLK to 24.576MHz */
     audio_mclk_24576_mhz(context);
 
@@ -580,20 +584,20 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     if (spiffsResult == SPIFFS_OK) {
         device = fs_dev_spiffs_device();
         fsdResult = fs_devman_register(SPIFFS_VOL_NAME, device, context->spiffsHandle);
+        fsdResult = fs_devman_set_default(SPIFFS_VOL_NAME);
     } else {
         syslog_print("SPIFFS mount error, reformat via command line\n");
     }
 
-    /* Open the SDCARD driver */
+    /* Open the eMMC/SD driver */
     sdcardResult = sdcard_open(SDCARD0, SDCARD_CARD_TYPE_SD, &context->sdcardHandle);
 
-    /* Hook the SD card filesystem into the stdio libraries */
-    device = fs_dev_fatfs_device();
-    fsdResult = fs_devman_register(SDCARD_VOL_NAME, device, NULL);
-
-    /* Set the SD card as the default device */
-    device = fs_dev_fatfs_device();
-    fsdResult = fs_devman_set_default(SDCARD_VOL_NAME);
+    /* Hook the eMMC/SD card filesystem into the stdio libraries */
+    if (sdcardResult == SDCARD_SIMPLE_SUCCESS) {
+        device = fs_dev_fatfs_device();
+        fsdResult = fs_devman_register(SDCARD_VOL_NAME, device, NULL);
+        fsdResult = fs_devman_set_default(SDCARD_VOL_NAME);
+    }
 
     /* Initialize the audio routing table */
     audio_routing_init(context);
@@ -661,7 +665,7 @@ static portTASK_FUNCTION( startupTask, pvParameters )
     /* Start the housekeeping tasks */
     xTaskCreate( houseKeepingTask, "HouseKeepingTask", GENERIC_TASK_STACK_SIZE,
         context, HOUSEKEEPING_PRIORITY, &context->houseKeepingTaskHandle );
-    xTaskCreate( pushButtonTask, "PushbuttonTask", GENERIC_TASK_STACK_SIZE,
+    xTaskCreate( pushButtonTask, "PushbuttonTask", PUSHBUTTON_TASK_STACK_SIZE,
         context, HOUSEKEEPING_PRIORITY, &context->pushButtonTaskHandle );
     xTaskCreate( pollStorage, "PollStorageTask", GENERIC_TASK_STACK_SIZE,
         context, HOUSEKEEPING_PRIORITY, &context->pollStorageTaskHandle );
@@ -690,6 +694,12 @@ int main(int argc, char *argv[])
 {
     APP_CONTEXT *context = &mainAppContext;
     UART_SIMPLE_RESULT uartResult;
+
+    /*
+     * Make sure the _GLOBAL_REENT structure is initialized before any
+     * threads start.
+     */
+    _REENT_SMALL_CHECK_INIT(_GLOBAL_REENT);
 
     /* Initialize the application context */
     memset(context, 0, sizeof(*context));

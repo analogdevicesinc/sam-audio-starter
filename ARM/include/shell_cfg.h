@@ -16,7 +16,7 @@
 
 /*! @cond */
 
-#define SHELL_MAX_ARGS          10
+#define SHELL_MAX_ARGS          20
 #define SHELL_WELCOMEMSG         "SAM Audio Starter with Networking\n" \
                                  "Version: %s (%s %s)\n" 
 #define SHELL_PROMPT            "# "

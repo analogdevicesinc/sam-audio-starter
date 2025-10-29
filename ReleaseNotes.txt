@@ -1,27 +1,34 @@
 Hardware         Software                          Version
 ---------------  --------------------------------- -------
-ADZS-SC589-MINI  SAM Audio Starter with Networking 3.1.0
+ADZS-SC589-MINI  SAM Audio Starter with Networking 4.0.0
 
 Below is a list of the major changes from the baseline.
 Note that minor/refactor changes will not be listed. 
 
 New Features
 ------------
-FAESWPROJ-202  - Support overriding of A2B response cycle
-No ticket      - Improve XMODEM retry handling
-
+FAESWPROJ-258 - WAV File Sink On: Auto Increment Filename
+FAESWPROJ-282 - WAV Command: Add ability to play 'n' times vs. looping
+FAESWPROJ-330 - VU Meters: Configurable display
+FAESWPROJ-259 - Shell command to loop run command
+FAESWPROJ-315 - SAM: Integration of OSS component kimgr/getopt_port
+FAESWPROJ-265 - SC589: Support unified LDR for easy UART utility flashing
+No ticket     - Add y axis to VU meters
+No ticket     - Echo and shell redirect commands
+No ticket     - FreeRTOS / newlib / DeviceIO stability improvements
+No ticket     - Add statistic printing for WAV src/sink (comes from this commit).
 
 Bug Fixes
 ---------
-FAESWPROJ-234 - Wav audio distortion on higher channel count
-FAESWPROJ-241 - File handle corruption in fs-dev module
-No ticket     - Typing route 'celar' instead of 'clear', doesn't produce error
-
+FAESWPROJ-248 - VU Meters don't display in TeraTerm v5 or greater
+FAESWPROJ-293 - SAM: WAV Recording Cut Off
+FAESWPROJ-247 - Squealing when no SHARC IN Present
 
 Known Issues
 -------------
-FAESWPROJ-236 - No response from shell after disconnect/reconnect when VU is active
-FAESWPROJ-248 - VU Meters don't display in TeraTerm v5.0 or greater
+FAESWPROJ-236 - No response from shell after disconnect/reconnect when vu is active
+FAESWPROJ-292 - Full LDR doesn't boot into application on blank flash
+
 
 Compatibility Issues
 --------------------

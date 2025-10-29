@@ -10,6 +10,8 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
+
 #if defined(__ADSPARM__)
 #include <libio/device.h>
 #include <libio/device_int.h>
@@ -17,7 +19,14 @@
 #include <device.h>
 #endif
 
+/* Kernel includes. */
+#ifdef FREE_RTOS
+#include "FreeRTOS.h"
+#include "task.h"
+#endif
+
 #include "uart_stdio.h"
+#include "uart_stdio_io.h"
 
 /* Select proper driver API for stdio operations */
 #ifdef USB_CDC_STDIO
@@ -56,27 +65,34 @@ static int uart_stdio_dev_close(int fh)
 static int uart_stdio_dev_write(int fh, unsigned char *ptr, int len)
 {
     UART_SIMPLE_RESULT uartResult;
-    unsigned char buf[20];
-    uint8_t b;
+    unsigned char buf[32];
+    uint16_t b;
     int i;
+    UART_STDIO_IO *io = NULL;
 
-    if (!stdioUartHandle) {
-        return(-1);
-    }
-
-    b = 0;
-    for (i = 0; i < len; i++) {
-        if ((ptr[i] == '\n') && (stdioUartMode == UART_STDIO_MODE_COOKED)) {
-            buf[b++] = '\r';
+#ifdef FREE_RTOS
+    io = pvTaskGetThreadLocalStoragePointer(NULL, configSTDIO_APP_TLS_POINTER);
+#endif
+    if (io && io->out) {
+        io->out(ptr, len, io->usr);
+    } else {
+        if (!stdioUartHandle) {
+            return(-1);
         }
-        buf[b++] = *(ptr+i);
-        if (b >= 16) {
+        b = 0;
+        for (i = 0; i < len; i++) {
+            if ((ptr[i] == '\n') && (stdioUartMode == UART_STDIO_MODE_COOKED)) {
+                buf[b++] = '\r';
+            }
+            buf[b++] = *(ptr+i);
+            if (b >= (sizeof(buf)-1)) {
+                uartResult = uart_write(stdioUartHandle, buf, &b);
+                b = 0;
+            }
+        }
+        if (b) {
             uartResult = uart_write(stdioUartHandle, buf, &b);
-            b = 0;
         }
-    }
-    if (b) {
-        uartResult = uart_write(stdioUartHandle, buf, &b);
     }
 
 #if defined(__ADSPARM__)
@@ -88,15 +104,22 @@ static int uart_stdio_dev_write(int fh, unsigned char *ptr, int len)
 
 static int uart_stdio_dev_read(int fh, unsigned char *buffer, int len)
 {
-    uint8_t readLen = len;
+    uint16_t readLen = len;
     UART_SIMPLE_RESULT uartResult;
+    UART_STDIO_IO *io = NULL;
 
-    if (!stdioUartHandle) {
-        return(-1);
+#ifdef FREE_RTOS
+    io = pvTaskGetThreadLocalStoragePointer(NULL, configSTDIO_APP_TLS_POINTER);
+#endif
+    if (io && io->in) {
+        readLen = io->in(buffer, len, io->usr);
+    } else {
+        if (!stdioUartHandle) {
+            return(-1);
+        }
+        readLen = (len > 255) ? 255 : len;
+        uartResult = uart_read(stdioUartHandle, buffer, &readLen);
     }
-
-    readLen = (len > 255) ? 255 : len;
-    uartResult = uart_read(stdioUartHandle, buffer, &readLen);
 
     if (readLen == 0) {
         len = -1;
@@ -181,12 +204,6 @@ DevEntry uart_stdio_deventry = {
     uart_stdio_kill,           /* int device _kill(int processID, int signal) */
     uart_stdio_get_errno       /* int device _get_errno(void) */
 };
-extern sDevTab     DeviceIOtable[MAXFD];
-
-DevEntry_t DevDrvTable[MAXDEV] = {
-  &uart_stdio_deventry,
-  0,
-};
 
 #else
 
@@ -231,49 +248,79 @@ DevEntry uart_stdio_deventry = {
               &uart_stdio_extension
 };
 
-DevEntry_t DevDrvTable[MAXDEV] = {
-   &uart_stdio_deventry,
-   0,
-};
 #endif
+
+/*
+ * Defining the first entry of the DevDrvTable[] disconnects stdio
+ * from the debugger's RDI interface.
+ */
+DevEntry_t DevDrvTable[MAXDEV] = {
+  &uart_stdio_deventry,
+  0,
+};
 
 /***********************************************************************
  * Public functions
  **********************************************************************/
+int uart_stdio_read(unsigned char *ptr, int len)
+{
+    len = uart_stdio_dev_read(UART_STDIO_STDIN_FD, ptr, len);
+    return len;
+}
+
+int uart_stdio_write(unsigned char *ptr, int len)
+{
+    len = uart_stdio_dev_write(UART_STDIO_STDOUT_FD, ptr, len);
+    return len;
+}
+
 void uart_stdio_init(sUART *uart)
 {
     stdioUartHandle = uart;
-    stdioUartMode = UART_STDIO_MODE_RAW;
+    stdioUartMode = UART_STDIO_MODE_COOKED;
 #if defined(__ADSPARM__)
     set_default_io_device(UART_STDIO_DEV);
-    /*
-     * newlib line buffering is broken in CCES 2.8.3 (latest as
-     * of the time of this comment).  Lines with multiple newlines
-     * are truncated after the first newline so disable line buffering.
-     *
-     * More detail can be found here:
-     *   https://github.com/espressif/esp-idf/issues/44
-     */
-    setvbuf(stdout, NULL, _IONBF, 0);
 #endif
 }
 
 void uart_stdio_set_read_timeout(int timeout)
 {
-    if (!stdioUartHandle) {
-        return;
+    UART_STDIO_IO *io = NULL;
+
+#ifdef FREE_RTOS
+    io = pvTaskGetThreadLocalStoragePointer(NULL, configSTDIO_APP_TLS_POINTER);
+#endif
+    if (io && io->set_read_timeout) {
+        io->set_read_timeout(timeout, io->usr);
+    } else {
+        if (!stdioUartHandle) {
+            return;
+        }
+        if (timeout == STDIO_TIMEOUT_NONE) {
+            timeout = UART_SIMPLE_TIMEOUT_NONE;
+        } else if (timeout == STDIO_TIMEOUT_INF) {
+            timeout = UART_SIMPLE_TIMEOUT_INF;
+        }
+        uart_setTimeouts(stdioUartHandle,
+            timeout, UART_SIMPLE_TIMEOUT_NO_CHANGE);
     }
-    if (timeout == STDIO_TIMEOUT_NONE) {
-        timeout = UART_SIMPLE_TIMEOUT_NONE;
-    } else if (timeout == STDIO_TIMEOUT_INF) {
-        timeout = UART_SIMPLE_TIMEOUT_INF;
-    }
-    uart_setTimeouts(stdioUartHandle,
-        timeout, UART_SIMPLE_TIMEOUT_NO_CHANGE);
 }
 
-void uart_stdio_set_mode(int mode)
+int uart_stdio_set_mode(int mode)
 {
-    stdioUartMode = mode;
+    UART_STDIO_IO *io = NULL;
+    int oldMode;
+
+#ifdef FREE_RTOS
+    io = pvTaskGetThreadLocalStoragePointer(NULL, configSTDIO_APP_TLS_POINTER);
+#endif
+    if (io && io->set_read_timeout) {
+        oldMode = io->set_mode(mode, io->usr);
+    } else {
+        oldMode = stdioUartMode;
+        stdioUartMode = mode;
+    }
+
+    return(oldMode);
 }
 

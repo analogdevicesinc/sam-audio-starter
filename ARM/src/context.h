@@ -100,7 +100,7 @@
  * at runtime. Use the 'a2b' command to set the I2C address at runtime to
  * match the HW.
  *
- * By default AD242x boards have address 0x68 and AD243x boards have
+ * By default AD2428MINI boards have address 0x68 and AD2433MINI boards have
  * address 0x6A
  */
 #define DEFAULT_A2B_I2C_ADDR           (0x68)
@@ -119,9 +119,9 @@ typedef enum A2B_BUS_MODE {
  *
  * TDM 16 x 32-bit
  * Rising edge FS (pulse high)
- * Early FS (data MSb delayed 1 BCLK)
- * Assert FS and data on BCLK rising edge
- * Sample FS and data on BCLK falling edge
+ * Normal FS (data MSb on same BCLK)
+ * Assert FS and data on BCLK falling edge
+ * Sample FS and data on BCLK rising edge
  *
  */
 #define SYSTEM_I2SGCFG                 (0x04)
@@ -190,6 +190,18 @@ typedef struct _USB_AUDIO_STATS {
     USB_AUDIO_RX_STATS rx;
     USB_AUDIO_TX_STATS tx;
 } USB_AUDIO_STATS;
+
+/* WAV src stats */
+typedef struct _WAV_SRC_STATS {
+    unsigned underrun;
+    unsigned slowReads;
+} WAV_SRC_STATS;
+
+/* WAV sink stats */
+typedef struct _WAV_SINK_STATS {
+    unsigned overrun;
+    unsigned slowWrites;
+} WAV_SINK_STATS;
 
 /*
  * The main application context.  Used as a container to carry a
@@ -326,6 +338,8 @@ typedef struct _APP_CONTEXT {
     void *wavSrcRBData;
     PaUtilRingBuffer *wavSinkRB;
     void *wavSinkRBData;
+    WAV_SRC_STATS wavSrcStats;
+    WAV_SINK_STATS wavSinkStats;
 
     /* RTP related variables and settings */
     RTP_STREAM rtpRx;

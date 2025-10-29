@@ -21,6 +21,7 @@
 void a2bAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
+    bool clockSource;
 
     /* Track ISR CPU load */
     cpuLoadISREnter();
@@ -28,11 +29,14 @@ void a2bAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
     /* Clear the contents */
     memset(buffer, 0, maxSize);
 
+    /* A2B is the A2B clock domain clock source when in sub node mode */
+    clockSource = context->a2bmode == A2B_BUS_MODE_SUB;
+
     /* Process audio */
     processAudio(context, CLOCK_DOMAIN_BITM_A2B_OUT, STREAM_ID_A2B_OUT,
         context->a2bOutChannels, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, true,
-        false, false);
+        clockSource, false);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();
@@ -41,15 +45,19 @@ void a2bAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 void a2bAudioIn(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
+    bool clockSource;
 
     /* Track ISR CPU load */
     cpuLoadISREnter();
+
+    /* A2B is the A2B clock domain clock source when in sub node mode */
+    clockSource = context->a2bmode == A2B_BUS_MODE_SUB;
 
     /* Process audio */
     processAudio(context, CLOCK_DOMAIN_BITM_A2B_IN, STREAM_ID_A2B_IN,
         context->a2bInChannels, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, false,
-        false, true);
+        clockSource, true);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();

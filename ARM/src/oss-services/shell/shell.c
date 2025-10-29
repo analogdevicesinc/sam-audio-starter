@@ -88,6 +88,8 @@ SHELL_FUNC( shell_vu );
 SHELL_FUNC( shell_eth );
 SHELL_FUNC( shell_resize );
 SHELL_FUNC( shell_date );
+SHELL_FUNC( shell_echo );
+SHELL_FUNC( shell_shell );
 
 SHELL_HELP( help );
 SHELL_HELP( ver );
@@ -129,6 +131,8 @@ SHELL_HELP( vu );
 SHELL_HELP( eth );
 SHELL_HELP( resize );
 SHELL_HELP( date );
+SHELL_HELP( echo );
+SHELL_HELP( shell );
 
 //static const SHELL_COMMAND shell_commands[] =
 const SHELL_COMMAND shell_commands[] =
@@ -178,6 +182,8 @@ const SHELL_COMMAND shell_commands[] =
   { "eth", shell_eth },
   { "resize", shell_resize },
   { "date", shell_date },
+  { "echo", shell_echo },
+  { "shell", shell_shell },
   { "exit", NULL },
   { NULL, NULL }
 };
@@ -224,6 +230,8 @@ static const SHELL_HELP_DATA shell_help_data[] =
   SHELL_INFO( eth ),
   SHELL_INFO( resize ),
   SHELL_INFO( date ),
+  SHELL_INFO( echo ),
+  SHELL_INFO( shell ),
   { NULL, NULL, NULL }
 };
 
@@ -587,9 +595,13 @@ void shell_poll( SHELL_CONTEXT *ctx )
 // Initialize the shell, returning 1 for OK and 0 for error
 int shell_init( SHELL_CONTEXT *ctx, p_term_out term_out, p_term_in term_in, int blocking, void *usr )
 {
+    if (ctx == NULL) {
+        return -1;
+    }
     memset(ctx, 0, sizeof(*ctx));
     ctx->blocking = blocking;
     ctx->usr = usr;
+    ctx->redirect = 1;
     ctx->interactive = 1;
     shell_platform_init(ctx, term_out, term_in);
     linenoise_init(ctx);

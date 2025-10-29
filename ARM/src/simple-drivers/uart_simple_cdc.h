@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2020 - Analog Devices Inc. All Rights Reserved.
+ * Copyright (c) 2024 - Analog Devices Inc. All Rights Reserved.
  * This software is proprietary and confidential to Analog Devices, Inc.
  * and its licensors.
  *
@@ -182,7 +182,7 @@ UART_SIMPLE_RESULT uart_cdc_setTimeouts(sUART *uartHandle,
  *         an error.
  ******************************************************************/
 UART_SIMPLE_RESULT uart_cdc_read(sUART *uartHandle, uint8_t *in,
-    uint8_t *inLen);
+    uint16_t *inLen);
 
 /*!****************************************************************
  * @brief Simple UART write.
@@ -205,7 +205,40 @@ UART_SIMPLE_RESULT uart_cdc_read(sUART *uartHandle, uint8_t *in,
  *         an error.
  ******************************************************************/
 UART_SIMPLE_RESULT uart_cdc_write(sUART *uartHandle, uint8_t *out,
-    uint8_t *outLen);
+    uint16_t *outLen);
+
+/*!****************************************************************
+ * @brief Simple UART lock.
+ *
+ * This function locks the UART port.  It can be used to perform
+ * uninterruped back-to-back reads or writes.
+ *
+ * If using the UART driver under FreeRTOS, this function must be
+ * called after the RTOS has been started.  This function is only
+ * meaningful under FreeRTOS.
+ *
+ * @param [in] uartHandle  A handle to a UART port
+ *
+ * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
+ *         an error.
+ ******************************************************************/
+UART_SIMPLE_RESULT uart_cdc_write_lock(sUART *uartHandle);
+
+/*!****************************************************************
+ * @brief Simple UART unlock.
+ *
+ * This function unlocks the UART port.
+ *
+ * If using the UART driver under FreeRTOS, this function must be
+ * called after the RTOS has been started.  This function is only
+ * meaningful under FreeRTOS.
+ *
+ * @param [in] uartHandle  A handle to a UART port
+ *
+ * @return Returns UART_SIMPLE_SUCCESS if successful, otherwise
+ *         an error.
+ ******************************************************************/
+UART_SIMPLE_RESULT uart_cdc_write_unlock(sUART *uartHandle);
 
 #ifdef __cplusplus
 } // extern "C"

@@ -57,6 +57,8 @@ typedef struct WAVE_INFO {
 
 typedef struct WAV_FILE {
     char *fname;
+    char *fnameInput;
+    unsigned fcount;
     FILE *f;
     bool enabled;
     bool header;
@@ -70,12 +72,15 @@ typedef struct WAV_FILE {
     bool isSrc;
     void *fileBuf;
     size_t dataOffset;
+    int loopCount;          /* Src only */
+    int loopCountTotal;     /* Src only */
+    bool fileAutoIncrease;  /* Sink only */
 } WAV_FILE;
 
 bool openWave(WAV_FILE *wf);
 void closeWave(WAV_FILE *wf);
-size_t readWave(WAV_FILE *wf, void *buf, size_t samples);
-size_t writeWave(WAV_FILE *wf, void *buf, size_t samples);
+bool readWave(WAV_FILE *wf, void *buf, size_t samples, size_t *rsize_out);
+bool writeWave(WAV_FILE *wf, void *buf, size_t samples, size_t *wsize_out);
 void overrideWave(WAV_FILE *wf, unsigned channels);
 
 #endif

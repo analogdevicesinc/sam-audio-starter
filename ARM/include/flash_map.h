@@ -15,6 +15,10 @@
 /*
  * WARNING: The upper 4k of the BOOT0 area is reserved for boot
  *          mode information (0x0000F000 - 0x0000FFFF).
+ *
+ *          If any bootloader or application sizes change in 
+ *          this file, the corresponding values MUST be adjusted 
+ *          in the makefile as well for proper FULL LDR creation!
  */
 
 /* Physical start of flash */

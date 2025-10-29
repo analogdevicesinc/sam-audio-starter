@@ -16,7 +16,7 @@
 #define FS_DEVMAN_CALLOC  umm_calloc
 #define FS_DEVMAN_FREE    umm_free
 
-#define FS_DEVMAN_MAX_DEVICES 3
+#define FS_DEVMAN_MAX_DEVICES 5
 
 #define FS_DEVMAN_ENABLE_FATFS
 #define FS_DEVMAN_ENABLE_SPIFFS

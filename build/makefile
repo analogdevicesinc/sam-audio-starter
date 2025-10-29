@@ -11,6 +11,8 @@ ARM_CC := arm-none-eabi-gcc
 SHARC_CC := cc21k
 SHARC_AS := easm21k
 LD := elfloader
+CAT := cat
+TRUNCATE := truncate
 
 # PROJECT settings
 PROJECT := SAM-Audio-Starter
@@ -21,7 +23,10 @@ PROJECT := SAM-Audio-Starter
 # Project settings
 PROC = ADSP-SC589
 SI_REVISION = 1.0
-LDR = $(PROJECT).ldr
+LDR_APP = $(PROJECT).ldr
+LDR_FULL = $(PROJECT)-Full.ldr
+BOOT1_OFFSET_SIZE = 64K
+APP_OFFSET_SIZE = 256K
 
 # Set release/debug/optimizer flags
 DEBUG ?= yes
@@ -86,6 +91,7 @@ ARM_SRC_DIRS += \
 	ARM/src/oss-services/libtelnet \
 	ARM/src/oss-services/kilo \
 	ARM/src/oss-services/getline \
+	ARM/src/oss-services/getopt \
 	ARM/src/oss-services/printf \
 	ARM/src/oss-services/c-timestamp \
 	ARM/src/oss-services/FatFs \
@@ -124,23 +130,37 @@ ARM_STATIC_LIBS = ../ARM/lib/cld_sc58x_audio_2_0_w_cdc_lib_Core0.a
 ARM_DEPS = $(foreach depdir, $(ARM_DST_DIRS), $(wildcard $(depdir)/*.d))
 
 #
-# Define the compiler/assembler flags
+# Define the project compiler flags
 #
-# __ADI_FREERTOS : Define only when using the ADI OSAL
+# __ADI_FREERTOS : Define ONLY when using the original ADI OSAL
 # SHARC_AUDIO_ENABLE : Define to enable SHARC core audio processing
 #
 ARM_CFLAGS = $(GENERAL_FLAGS)
 ARM_CFLAGS += $(ARM_OPTIMIZE) $(BUILD_RELEASE) $(BUILD_RTOS) $(ARM_INCLUDE_DIRS)
 ARM_CFLAGS += -Wall -Wno-unused-but-set-variable -Wno-unused-function
-ARM_CFLAGS += -mcpu=cortex-a5 -gdwarf-2 -ffunction-sections -fdata-sections
+ARM_CFLAGS += -gdwarf-2 -ffunction-sections -fdata-sections
 ARM_CFLAGS += -mproc=$(PROC) -msi-revision=$(SI_REVISION) -DCORE0
-ARM_CFLAGS += -DSAE_IPC -DFREE_RTOS -D__SAM_V1__
-#ARM_CFLAGS += -D__ADI_FREERTOS
+ARM_CFLAGS += -madi-threads -DFREE_RTOS
+ARM_CFLAGS += -DSAE_IPC -D__SAM_V1__
 ARM_CFLAGS += -DFEATURE_CPU_LOAD
 ARM_CFLAGS += -DUSB_CDC_STDIO
 ARM_CFLAGS += -DSHARC_AUDIO_ENABLE
+#ARM_CFLAGS += -D__ADI_FREERTOS
 
+#
+# Define the project assembler flags
+#
 ARM_AFLAGS = -x assembler-with-cpp -mproc=$(PROC) -msi-revision=$(SI_REVISION) -gdwarf-2 -DCORE0
+
+#
+# Define the project linker flags
+#
+# Enable to wrap the DeviceIO _dev_open/_dev_close functions
+ARM_LINK_FLAGS = -Wl,--wrap=_dev_open -Wl,--wrap=_dev_close
+# Enable to wrap and debug system malloc/calloc/realloc/free
+#ARM_LINK_FLAGS += -Wl,--wrap=_malloc_r -Wl,--wrap=_calloc_r -Wl,--wrap=_realloc_r -Wl,--wrap=_free_r
+# Enable to output verbose link output
+#ARM_LINK_FLAGS += -Wl,--verbose
 
 ARM_OBJS = $(ARM_ASM_OBJ) $(ARM_C_OBJ)
 ARM_OBJS_FILE = .lobjs_arm
@@ -161,8 +181,8 @@ $(ARM_DST)/%.o: ../%.S
 
 # Create the ARM executable
 $(ARM_EXE): $(ARM_OBJS) $(ARM_STATIC_LIBS)
-	@echo $^ > $(ARM_OBJS_FILE)
-	$(ARM_CC) -mproc=$(PROC) -msi-revision=$(SI_REVISION) -T"ARM-$(PROJECT).ld" -Wl,-Map=$(PROJECT)-ARM.map -Wl,--gc-sections -madi-threads -mdebug-libs -o "$@" @$(ARM_OBJS_FILE) -lm
+	$(file > $(ARM_OBJS_FILE), $^)
+	$(ARM_CC) -mproc=$(PROC) -msi-revision=$(SI_REVISION) -T"ARM-$(PROJECT).ld"  $(ARM_LINK_FLAGS) -Wl,-Map=$(PROJECT)-ARM.map -Wl,--gc-sections -madi-threads -mdebug-libs -o "$@" @$(ARM_OBJS_FILE) -lm
 
 # Use order-only-prerequisites for directories
 $(ARM_OBJS): | $(ARM_DST_DIRS)
@@ -228,7 +248,7 @@ $(SHARC0_DST)/SHARC0/%.doj: ../SHARC0/%.s
 
 # Link object files
 $(SHARC0_EXE): $(SHARC0_OBJS) $(SHARC0_STATIC_LIBS)
-	@echo $^ > $(SHARC0_OBJS_FILE)
+	$(file > $(SHARC0_OBJS_FILE), $^)
 	$(SHARC_CC) -proc $(PROC) -si-revision $(SI_REVISION) -T"SHARC0-$(PROJECT).ldf" -flags-link -e -no-mem -map linker_log_SHARC0.xml -flags-link -ip -flags-link -MDCORE1,-MDOTHERCORE,-MDDEBUG -o "$@" -@$(SHARC0_OBJS_FILE)
 	@$(RM) -f $@.doj
 	@$(RM) -f $@.asm
@@ -295,7 +315,7 @@ $(SHARC1_DST)/%.doj: ../%.s
 
 # Link object files
 $(SHARC1_EXE): $(SHARC1_OBJS) $(SHARC1_STATIC_LIBS)
-	@echo $^ > $(SHARC1_OBJS_FILE)
+	$(file > $(SHARC1_OBJS_FILE), $^)
 	$(SHARC_CC) -proc $(PROC) -si-revision $(SI_REVISION) -T"SHARC1-$(PROJECT).ldf" -no-mem -map linker_log_SHARC1.xml -flags-link -e -flags-link -ip -flags-link -MDCORE2,-MDOTHERCORE,-MDDEBUG -o "$@" -@$(SHARC1_OBJS_FILE)
 	@$(RM) -f $@.doj
 	@$(RM) -f $@.asm
@@ -307,11 +327,28 @@ $(SHARC1_OBJS): | $(SHARC1_DST_DIRS)
 # Generic section
 ################################################################################
 
-.DEFAULT_GOAL = all
-all: $(LDR)
+.DEFAULT_GOAL = app
+app: $(LDR_APP)
+all: $(LDR_APP) $(LDR_FULL)
 
-$(LDR):  $(ARM_EXE) $(SHARC0_EXE) $(SHARC1_EXE)
+$(LDR_APP):  $(ARM_EXE) $(SHARC0_EXE) $(SHARC1_EXE)
+	@echo ' '
+	@echo 'Building App LDR'
+	@echo ' '
 	$(LD) -proc $(PROC) -core0=$(ARM_EXE) -init ezkitSC589_initcode_core0_v10 -core1=$(SHARC0_EXE) -core2=$(SHARC1_EXE) -NoFinalTag=$(ARM_EXE) -NoFinalTag=$(SHARC0_EXE) -b SPI -f BINARY -Width 8 -bcode 0x0C -verbose -o $@ > ld.log 2>&1
+
+$(LDR_FULL): $(LDR_APP)
+	@echo ' '
+	@echo 'Building Full LDR: Boot0 + Boot1 + App'
+	@echo ' '
+	$(CAT) bare-metal-bootloader0.ldr > $(LDR_FULL)
+	$(CAT) FF_Pad_256KB.ldr >> $(LDR_FULL)
+	$(TRUNCATE) -s $(BOOT1_OFFSET_SIZE) $(LDR_FULL)
+	$(CAT) bare-metal-bootloader1.ldr >> $(LDR_FULL)
+	$(CAT) FF_Pad_256KB.ldr >> $(LDR_FULL)
+	$(TRUNCATE) -s $(APP_OFFSET_SIZE) $(LDR_FULL)
+	$(CAT) $(LDR_APP) >> $(LDR_FULL)
+    
 
 $(ARM_DST_DIRS) $(SHARC0_DST_DIRS) $(SHARC1_DST_DIRS):
 	mkdir -p $@
@@ -322,7 +359,7 @@ clean:
 	$(RM) -rf $(ARM_EXE) $(ARM_DST)
 	$(RM) -rf $(SHARC0_EXE) $(SHARC0_DST)
 	$(RM) -rf $(SHARC1_EXE) $(SHARC1_DST)
-	$(RM) -f ${LDR}
+	$(RM) -f ${LDR_APP} -f ${LDR_FULL}
 	$(RM) -f $(ARM_CFLAGS_FILE) $(SHARC0_CFLAGS_FILE) $(SHARC1_CFLAGS_FILE)
 	$(RM) -f $(ARM_OBJS_FILE) $(SHARC0_OBJS_FILE) $(SHARC1_OBJS_FILE)
 
@@ -331,16 +368,16 @@ clean:
 
 help:
 	@echo 'usage:'
-	@echo '    make [all|clean] [ARM_OPTIMIZE=<-Og,-O1,etc.>] [RELEASE=<yes/no>] [VERBOSE=1]'
+	@echo '    make [app|all|clean] [ARM_OPTIMIZE=<-Og,-O1,etc.>] [RELEASE=<yes/no>] [VERBOSE=1]'
 	@echo ''
 	@echo 'DEBUG:'
-	@echo '    make all ARM_OPTIMIZE=-Og SHARC_OPTIMIZE=-O1'
+	@echo '    make app ARM_OPTIMIZE=-Og SHARC_OPTIMIZE=-O1'
 	@echo ''
 	@echo 'RELEASE:'
-	@echo '    make all'
+	@echo '    make app RELEASE=yes'
 
 
-.PHONY: all clean help
+.PHONY: app all clean help
 .SECONDARY:
 
 # Include dependencies

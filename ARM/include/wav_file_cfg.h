@@ -20,6 +20,6 @@
 #define WAVE_FILE_CALLOC(x,y)  umm_calloc_aligned(x,y,ADI_CACHE_LINE_LENGTH)
 #define WAVE_FILE_FREE(x)      umm_free_aligned(x)
 
-#define WAVE_FILE_BUF_SIZE       (16 * 1024)
+#define WAVE_FILE_BUF_SIZE       (64 * 1024)
 
 #endif

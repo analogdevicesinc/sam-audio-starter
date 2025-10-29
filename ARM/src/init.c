@@ -744,6 +744,7 @@ SPORT_SIMPLE_CONFIG cfgTDM8x1 = {
     .wordSize = SPORT_SIMPLE_WORD_SIZE_32BIT,
     .dataEnable = SPORT_SIMPLE_ENABLE_PRIMARY,
     .frames = SYSTEM_BLOCK_SIZE,
+    .syncDMA = true
 };
 
 void disable_mclk(APP_CONTEXT *context)
@@ -1562,7 +1563,7 @@ void sae_buffer_init(APP_CONTEXT *context)
  */
 void audio_routing_init(APP_CONTEXT *context)
 {
-    context->routingTable = calloc(MAX_AUDIO_ROUTES, sizeof(ROUTE_INFO));
+    context->routingTable = umm_calloc(MAX_AUDIO_ROUTES, sizeof(ROUTE_INFO));
 }
 
 /**********************************************************************

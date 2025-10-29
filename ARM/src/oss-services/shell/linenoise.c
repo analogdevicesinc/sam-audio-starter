@@ -93,9 +93,6 @@
 #define LINENOISE_DONT_PUSH_EMPTY           0
 #define LINENOISE_PUSH_EMPTY                1
 
-/* Make sure a default context always exists */
-SHELL_CONTEXT *defaultCxt = NULL;
-
 static int linenoise_internal_addhistory( SHELL_CONTEXT *ctx, const char *line, int force_empty );
 
 void linenoise_cleanup( SHELL_CONTEXT *ctx )
@@ -363,10 +360,6 @@ int linenoise_getline( SHELL_CONTEXT *ctx, char* buffer, int maxinput, const cha
 {
   int count;
 
-  if (ctx == NULL) {
-      ctx = defaultCxt;
-  }
-
   while( 1 )
   {
     count = linenoisePrompt( ctx, buffer, maxinput, prompt );
@@ -441,26 +434,11 @@ static int linenoise_internal_addhistory( SHELL_CONTEXT *ctx, const char *line, 
 
 int linenoise_addhistory( SHELL_CONTEXT *ctx, const char *line )
 {
-  if (ctx == NULL) {
-      ctx = defaultCxt;
-  }
-
   return linenoise_internal_addhistory( ctx, line, LINENOISE_DONT_PUSH_EMPTY );
 }
 
 int linenoise_init(SHELL_CONTEXT *ctx)
 {
-    /* Initialize the default context */
-    if (defaultCxt == NULL) {
-        defaultCxt = SHELL_MALLOC(sizeof(*defaultCxt));
-        memset(defaultCxt, 0, sizeof(*defaultCxt));
-        defaultCxt->max_histories = SHELL_MAX_HISTORIES;
-        defaultCxt->new_line = 1;
-        if (ctx) {
-            defaultCxt->blocking = ctx->blocking;
-        }
-    }
-
     /* Initialize the given context */
     if (ctx) {
         ctx->max_histories = SHELL_MAX_HISTORIES;

@@ -83,6 +83,7 @@ typedef enum SPI_SIMPLE_RESULT
     SPI_SIMPLE_INVALID_PORT,     /**< Invalid SPI port open */
     SPI_SIMPLE_NO_MORE_DEVICES,  /**< No more device handles available */
     SPI_SIMPLE_PORT_BUSY,        /**< SPI port is already opened */
+    SPI_INVALID_ALIGNMENT,       /**< Invalid buffer alignment */
     SPI_SIMPLE_ERROR             /**< Generic error */
 } SPI_SIMPLE_RESULT;
 
