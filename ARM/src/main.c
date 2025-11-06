@@ -69,6 +69,7 @@
 #include "exception.h"
 #include "si3536.h"
 #include "cces_hacks.h"
+#include "tdm_init.h"
 
 /* Application context */
 APP_CONTEXT mainAppContext;
@@ -648,6 +649,12 @@ static portTASK_FUNCTION( startupTask, pvParameters )
 
     /* Enable main MCLK/BCLK for a synchronous start */
     enable_mclk(context);
+
+    /* Initialize the TDM streams in slave mode */
+    tdm_init(context);
+
+    /* Enable the TDM streams for a synchronous start */
+    tdm_enable(context);
 
     /* Initialize the Ethernet related HW */
     eth_hardware_init(context);

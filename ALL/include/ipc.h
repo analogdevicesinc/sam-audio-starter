@@ -26,7 +26,7 @@
 /*
  * Max number of clock domains to track cycles on
  */
-#define IPC_CYCLE_DOMAIN_MAX 4
+#define IPC_CYCLE_DOMAIN_MAX 10
 
 /*
  * IPC message types

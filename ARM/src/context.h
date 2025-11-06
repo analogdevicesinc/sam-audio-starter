@@ -96,6 +96,33 @@
 #define SHARC1_AUDIO_OUT_CHANNELS   (SYSTEM_MAX_CHANNELS)
 
 /*
+ * Incoming TDM data will be physically presented on the data lines
+ * in 16-bit TDM8 format as as follows:
+ *
+ *   Pin D0: X0, Y0, Z0, 0, 0, 0, 0, 0
+ *   Pin D1: X1, Y1, Z1, 0, 0, 0, 0, 0
+ *
+ * This will map to DMA memory in an interleaved format in blocks of 16
+ * channels
+ *
+ *  X0, X1, Y0, Y1, Z0, Z1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+ *
+ * This audio is de-interleaved in tdm_audio.c into this format
+ *
+ *  X0, Y0, Z0, X1, Y1, Z1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+ *
+ * Pin D0 or D1 content can then be routed through the SHARC and back
+ * out to D2 in the following format
+ *
+ *  X, Y, Z, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+ */
+#define TDM_IN_CHANNELS         (6)
+#define TDM_IN_DMA_CHANNELS     (16)
+#define TDM_OUT_CHANNELS        (3)
+#define TDM_OUT_DMA_CHANNELS    (8)
+#define TDM_AUDIO_TYPE          int16_t
+
+/*
  * The A2B I2C addresses are latched at power up and cannot be changed
  * at runtime. Use the 'a2b' command to set the I2C address at runtime to
  * match the HW.
@@ -233,6 +260,8 @@ typedef struct _APP_CONTEXT {
     sSPORT *spdifSportInHandle;
     sSPORT *a2bSportOutHandle;
     sSPORT *a2bSportInHandle;
+    sSPORT *tdmSportInHandle;
+    sSPORT *tdmSportOutHandle;
     sSDCARD *sdcardHandle;
     spiffs *spiffsHandle;
 
@@ -295,6 +324,8 @@ typedef struct _APP_CONTEXT {
     void *sharc1AudioOut[2];
     void *a2b2AudioIn[2];
     void *a2b2AudioOut[2];
+    void *tdmAudioIn[2];
+    void *tdmAudioOut[2];
 
     /* Audio ping/pong buffer lengths */
     unsigned codecAudioInLen;
@@ -307,6 +338,8 @@ typedef struct _APP_CONTEXT {
     unsigned sharc0AudioOutLen;
     unsigned sharc1AudioInLen;
     unsigned sharc1AudioOutLen;
+    unsigned tdmAudioInLen;
+    unsigned tdmAudioOutLen;
 
     /* SAE buffer pointers */
     SAE_MSG_BUFFER *sharc0MsgIn[2];

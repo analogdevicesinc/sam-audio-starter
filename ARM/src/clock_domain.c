@@ -31,6 +31,9 @@ char *clock_domain_str(CLOCK_DOMAIN domain)
         case CLOCK_DOMAIN_VBAN:
             str = "CLOCK_DOMAIN_VBAN";
             break;
+        case CLOCK_DOMAIN_TDM:
+            str = "CLOCK_DOMAIN_TDM";
+            break;
         default:
             break;
     }
@@ -123,8 +126,8 @@ void clock_domain_init(APP_CONTEXT *context)
     clock_domain_set(context, CLOCK_DOMAIN_VBAN, CLOCK_DOMAIN_BITM_VBAN_RX);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VBAN_TX);
 #ifdef SHARC_AUDIO_ENABLE
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SHARC0_IN);
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SHARC0_OUT);
+    clock_domain_set(context, CLOCK_DOMAIN_TDM, CLOCK_DOMAIN_BITM_SHARC0_IN);
+    clock_domain_set(context, CLOCK_DOMAIN_TDM, CLOCK_DOMAIN_BITM_SHARC0_OUT);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SHARC1_IN);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SHARC1_OUT);
 #endif

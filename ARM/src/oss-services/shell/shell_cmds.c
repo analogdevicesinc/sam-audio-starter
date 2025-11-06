@@ -2191,7 +2191,7 @@ const char shell_help_vu[] =
     "    -s <outchar>  - Values: ASCII character (e.g. \"T\") or \n"
     "                             UTF-8 hex string (e.g \"25A0\")\n"
     "  domain          - Only set/get the VU meter clock comain\n"
-    "                    Values: \"a2b\" or \"system\"";
+    "                    Values: \"a2b\", \"system\", or \"tdm\"\n";
 const char shell_help_summary_vu[] = "Show VU meters";
 
 #include <math.h>
@@ -2206,6 +2206,8 @@ static int shell_vu_set_domain(const char *str)
         clock_domain_set(context, CLOCK_DOMAIN_A2B, CLOCK_DOMAIN_BITM_VU_IN);
     } else if (strcmp(str, "system") == 0) {
         clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_VU_IN);
+    } else if (strcmp(str, "tdm") == 0) {
+        clock_domain_set(context, CLOCK_DOMAIN_TDM, CLOCK_DOMAIN_BITM_VU_IN);
     } else {
         ret = -1;
     }
@@ -2533,6 +2535,7 @@ const char shell_help_route[] =
     "  sharc0     - SHARC0 Audio\n"
     "  sharc1     - SHARC1 Audio\n"
 #endif
+    "  tdm        - TDM Audio\n"
     "  wav        - WAV file src/sink\n"
     "  rtp        - RTP network audio tx\n"
     "  vban       - VBAN network audio tx\n"
@@ -2611,6 +2614,12 @@ static char *stream2str(int streamID)
         case STREAM_ID_VBAN_TX:
             str = "VBAN_TX";
             break;
+        case STREAM_ID_TDM_IN:
+            str = "TDM_IN";
+            break;
+        case STREAM_ID_TDM_OUT:
+            str = "TDM_OUT";
+            break;
         default:
             str = "UNKNOWN";
             break;
@@ -2643,6 +2652,8 @@ STREAM_ID str2stream(char *stream, bool src)
         return(src ? STREAM_ID_VBAN_RX : STREAM_ID_VBAN_TX);
     } else if (strcmp(stream, "a2b2") == 0) {
         return(src ? STREAM_ID_A2B2_IN : STREAM_ID_A2B2_OUT);
+    } else if (strcmp(stream, "tdm") == 0) {
+        return(src ? STREAM_ID_TDM_IN : STREAM_ID_TDM_OUT);
     } else if (strcmp(stream, "off") == 0) {
         return(STREAM_ID_UNKNOWN);
     }

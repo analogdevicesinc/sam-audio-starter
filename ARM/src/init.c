@@ -518,6 +518,16 @@ uint32_t GIC_IRQ_PRIO_2[] = {
     INTR_SPORT1_B_DMA,
     INTR_SPORT2_A_DMA,
     INTR_SPORT2_B_DMA,
+    INTR_SPORT3_A_DMA,
+    INTR_SPORT3_B_DMA,
+    INTR_SPORT4_A_DMA,
+    INTR_SPORT4_B_DMA,
+    INTR_SPORT5_A_DMA,
+    INTR_SPORT5_B_DMA,
+    INTR_SPORT6_A_DMA,
+    INTR_SPORT6_B_DMA,
+    INTR_SPORT7_A_DMA,
+    INTR_SPORT7_B_DMA,
 
     /* MSI0 */
     INTR_MSI0_STAT,
@@ -657,7 +667,7 @@ void cgu_ts_init(void)
  *       from prematurely (and redundantly) flushing the buffer when the
  *       SPORT callback returns.
  **********************************************************************/
-static sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
+sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
     SPORT_SIMPLE_CONFIG *cfg, SPORT_SIMPLE_AUDIO_CALLBACK cb,
     void **pingPongPtrs, unsigned *pingPongLen, void *usrPtr,
     bool cached, SPORT_SIMPLE_RESULT *result)
@@ -685,7 +695,7 @@ static sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
     for (i = 0; i < 2; i++) {
         if (!cfg->dataBuffers[i]) {
             cfg->dataBuffers[i] = umm_malloc_heap_aligned(
-                UMM_SDRAM_HEAP, dataBufferSize, sizeof(uint32_t));
+                UMM_SDRAM_HEAP, dataBufferSize, ADI_CACHE_LINE_LENGTH);
             memset(cfg->dataBuffers[i], 0, dataBufferSize);
         }
     }
@@ -710,7 +720,7 @@ static sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
     return(sportHandle);
 }
 
-static void single_sport_deinit(sSPORT **sportHandle,
+void single_sport_deinit(sSPORT **sportHandle,
     void **pingPongPtrs, unsigned *pingPongLen)
 {
     if (sportHandle && *sportHandle) {
