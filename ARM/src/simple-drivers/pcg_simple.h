@@ -63,6 +63,7 @@ typedef struct {
 
     bool         sync_to_fs;        /**< Whether or not to sync to an external framesync */
     uint32_t     fs_in_dai_pin;     /**< DAI pin for FS (needed only if syncing to external framesync*/
+    uint32_t     fs_phase;
 
     uint32_t     bitclk_div;                /**< Divisor for BCLK reduction */
     uint32_t     lrclk_clocks_per_frame;    /**< Number of bits per LR clock frame (typically 64, 256 or 512) */

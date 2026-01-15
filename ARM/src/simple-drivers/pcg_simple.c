@@ -286,8 +286,9 @@ PCG_SIMPLE_RESULT pcg_open( PCG_SIMPLE_CONFIG * config) {
     reg_ctrl1 |= (clock_divide << BITP_PCG_CTLA1_CLKDIV);
     reg_ctrl0 |= (lr_divide << BITP_PCG_CTLA0_FSDIV);
 
-    uint32_t lr_phase_lo = 0; //(lr_divide/2 + 1) & 0x3FF;
-    uint32_t lr_phase_high = 0; //(lr_divide/2 + 1) >> 10;
+    config->fs_phase += 1;
+    uint32_t lr_phase_lo = config->fs_phase & 0x3FF; //(lr_divide/2 + 1) & 0x3FF;
+    uint32_t lr_phase_high = (config->fs_phase >> 10) & 0x3FF; //(lr_divide/2 + 1) >> 10;
 
     reg_ctrl1 |= (lr_phase_lo) << BITP_PCG_CTLA1_FSPHASELO; // Shift LR clock to transition on falling edge
     reg_ctrl0_2 = reg_ctrl0 | (lr_phase_high) << BITP_PCG_CTLA0_FSPHASEHI;

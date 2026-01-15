@@ -1,0 +1,225 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!-- *
+ * This software is distributed in the hope that it will be useful,
+ * but is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+ * CONDITIONS OF ANY KIND, without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ *
+ * This software may only be used to program products purchased from
+ * Analog Devices for incorporation by you into audio products that
+ * are intended for resale to audio product end users. This software
+ * may not be distributed whole or in any part to third parties.
+ *
+ * Copyright ©2026 Analog Devices, Inc. All rights reserved.
+ */
+-->
+<!--SigmaStudio export XML file-->
+<Schematic>
+    <IC>
+        <Name>ADAU1761</Name>
+        <PartNumber>DSPSigmaLP1</PartNumber>
+        <Register>
+            <Name>NonModRamAlloc</Name>
+            <Address>0</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>4</Size>
+            <Data>0x00, 0x00, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Sample Rate Setting</Name>
+            <Address>16619</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x7F, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.DSP Run Register</Name>
+            <Address>16630</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Clock Control Register</Name>
+            <Address>16384</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x0F, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.PLL Control Register</Name>
+            <Address>16386</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>6</Size>
+            <Data>0x00, 0x01, 0x00, 0x00, 0x22, 0x03, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Delay</Name>
+            <Address>0</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0x00, 0x64, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Serial Port Control Registers</Name>
+            <Address>16405</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.ALC Control Registers</Name>
+            <Address>16401</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>4</Size>
+            <Data>0x00, 0x00, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Microphone Control Register</Name>
+            <Address>16392</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Record Input Signal Path Registers</Name>
+            <Address>16393</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>8</Size>
+            <Data>0x00, 0x5B, 0x05, 0x5B, 0x05, 0x40, 0x40, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.ADC Control Registers</Name>
+            <Address>16409</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>3</Size>
+            <Data>0x13, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Playback Output Signal Path Registers</Name>
+            <Address>16412</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>14</Size>
+            <Data>0x21, 0x00, 0x41, 0x00, 0x05, 0x11, 0x00, 0xE7, 0xE6, 0xE6, 0xE6, 0xE6, 0x08, 0x03, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Converter Control Registers</Name>
+            <Address>16407</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.DAC Control Registers</Name>
+            <Address>16426</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>3</Size>
+            <Data>0x03, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Serial Port Pad Control Registers</Name>
+            <Address>16429</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0xAA, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Communication Port Pad Control Registers</Name>
+            <Address>16431</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0xA0, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Jack Detect Pad Control Register</Name>
+            <Address>16433</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x08, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.DSP ON Register</Name>
+            <Address>16629</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x01, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.CRC Registers</Name>
+            <Address>16576</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>5</Size>
+            <Data>0x7F, 0x2C, 0x7F, 0x7F, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.GPIO Registers</Name>
+            <Address>16582</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>4</Size>
+            <Data>0x00, 0x00, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Non Modulo Registers</Name>
+            <Address>16617</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Watchdog Registers</Name>
+            <Address>16592</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>5</Size>
+            <Data>0x00, 0x04, 0x00, 0x00, 0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Sampling Rate Setting Register</Name>
+            <Address>16619</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x7F, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Routing Matrix Inputs Register</Name>
+            <Address>16626</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x01, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Routing Matrix Outputs Register</Name>
+            <Address>16627</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x01, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Serial Data Configuration Register</Name>
+            <Address>16628</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.DSP Slew Mode Register</Name>
+            <Address>16631</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Serial Port Sample Rate Register</Name>
+            <Address>16632</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>1</Size>
+            <Data>0x00, </Data>
+        </Register>
+        <Register>
+            <Name>ADAU1761.Clock Enable Registers</Name>
+            <Address>16633</Address>
+            <AddrIncr>0</AddrIncr>
+            <Size>2</Size>
+            <Data>0x7F, 0x03, </Data>
+        </Register>
+    </IC>
+</Schematic>

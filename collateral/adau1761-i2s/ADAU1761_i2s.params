@@ -1,0 +1,14 @@
+Cell Name         = None - Framework
+Parameter Name    = NonModRamAlloc
+Parameter Address = 0
+Parameter Value   = 0
+Parameter Data :
+0x00, 0x00, 0x00, 0x00, 
+
+
+
+Parameter data for: ADAU1761 (Hexadecimal format starting at parameter address 0)
+See also ADAU1761_i2s.hex file
+
+Parameter data for: ADAU1761 (Binary format starting at parameter address 0)
+

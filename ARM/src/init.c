@@ -757,6 +757,22 @@ SPORT_SIMPLE_CONFIG cfgTDM8x1 = {
     .syncDMA = true
 };
 
+/***********************************************************************
+ * Simple SPORT driver I2S
+ **********************************************************************/
+SPORT_SIMPLE_CONFIG cfgI2Sx1 = {
+    .clkDir = SPORT_SIMPLE_CLK_DIR_SLAVE,
+    .fsDir = SPORT_SIMPLE_FS_DIR_MASTER,
+    .dataDir = SPORT_SIMPLE_DATA_DIR_UNKNOWN,
+    .bitClkOptions = SPORT_SIMPLE_CLK_FALLING,
+    .fsOptions = SPORT_SIMPLE_FS_OPTION_INV | SPORT_SIMPLE_FS_OPTION_EARLY |
+                 SPORT_SIMPLE_FS_OPTION_50,
+    .tdmSlots = SPORT_SIMPLE_TDM_2,
+    .wordSize = SPORT_SIMPLE_WORD_SIZE_32BIT,
+    .dataEnable = SPORT_SIMPLE_ENABLE_PRIMARY,
+    .frames = SYSTEM_BLOCK_SIZE,
+};
+
 void disable_mclk(APP_CONTEXT *context)
 {
     *pREG_PADS0_DAI0_IE &= ~(1 << BITP_PADS0_DAI0_IE_MCLK);
@@ -804,20 +820,57 @@ void mclk_init(APP_CONTEXT *context)
  **********************************************************************/
 static void sru_config_sharc_sam_adau1761_slave(void)
 {
+    /* Route DAI1 PCG-C 64Fs TDM BCLK through DAI0_P18 */
+    SRU(HIGH, DAI0_PBEN18_I);
+    SRU(PCG0_CRS_CLKC_O, DAI0_PB18_I);
+
     SRU(HIGH, DAI0_PBEN01_I);        // ADAU1761 DAC data is an output
     SRU(LOW,  DAI0_PBEN02_I);        // ADAU1761 ADC data is an input
     SRU(HIGH, DAI0_PBEN03_I);        // ADAU1761 CLK is an output
     SRU(HIGH, DAI0_PBEN04_I);        // ADAU1761 FS is an output
 
-    SRU(PCG0_CLKA_O, SPT0_ACLK_I);   // PCG-A BCLK to SPORT0A BCLK
-    SRU(PCG0_CLKA_O, SPT0_BCLK_I);   // PCG-A BCLK to SPORT0A BCLK
-    SRU(PCG0_CLKA_O, DAI0_PB03_I);   // PCG-A BCLK to ADAU1761
-
-    SRU(SPT0_AFS_O, DAI0_PB04_I);    // SPORT0A FS to ADAU1761
+    SRU(DAI0_PB18_O, SPT0_ACLK_I);   // PCG-B BCLK to SPORT0A BCLK
+    SRU(DAI0_PB18_O, SPT0_BCLK_I);   // PCG-B BCLK to SPORT0B BCLK
     SRU(SPT0_AFS_O, SPT0_BFS_I);     // SPORT0A FS to SPORT0B
 
-    SRU(DAI0_PB02_O, SPT0_BD0_I);     // ADAU1761 ADC pin to SPORT0B input
-    SRU(SPT0_AD0_O,  DAI0_PB01_I);    // SPORT0A output to ADAU1761 DAC pin
+    SRU(PCG0_CLKB_O, DAI0_PB03_I);   // PCG-B BCLK to ADAU1761
+    SRU(PCG0_FSB_O, DAI0_PB04_I);    // PCG-B FS to ADAU1761
+
+    // Configure and enable SRC 1 (CODEC IN)
+    *pREG_ASRC0_CTL01 &= 0x0000FFFF;
+    *pREG_ASRC0_CTL01 |=
+        BITM_ASRC_CTL01_EN1 |                // Enable SRC1
+        (0x1 << BITP_ASRC_CTL01_SMODEIN1) |  // Input mode = I2S
+        (0x1 << BITP_ASRC_CTL01_SMODEOUT1) | // Output mode = I2S
+        0;
+
+    // Connect CODEC ADC to SRC 1 "IP" side
+    SRU(DAI0_PB03_O, SRC1_CLK_IP_I);
+    SRU(DAI0_PB04_O, SRC1_FS_IP_I);
+    SRU(DAI0_PB02_O, SRC1_DAT_IP_I);
+
+    // Connect SRC 1 "OP" side to SPORT0B
+    SRU(DAI0_PB18_O,    SRC1_CLK_OP_I);
+    SRU(SPT0_AFS_O,     SRC1_FS_OP_I);
+    SRU(SRC1_DAT_OP_O,  SPT0_BD0_I);
+
+    // Configure and enable SRC 2 (CODEC OUT)
+    *pREG_ASRC0_CTL23 &= 0xFFFF0000;
+    *pREG_ASRC0_CTL23 |=
+        BITM_ASRC_CTL23_EN2 |                // Enable SRC2
+        (0x1 << BITP_ASRC_CTL23_SMODEIN2) |  // Input mode = I2S
+        (0x1 << BITP_ASRC_CTL23_SMODEOUT2) | // Output mode = I2S
+        0;
+
+    // Connect SPORT0A to SRC 2 "IP" side
+    SRU(DAI0_PB18_O, SRC2_CLK_IP_I);
+    SRU(SPT0_AFS_O, SRC2_FS_IP_I);
+    SRU(SPT0_AD0_O, SRC2_DAT_IP_I);
+
+    // Connect SRC 2 "OP" side to CODEC DAC
+    SRU(DAI0_PB03_O,    SRC2_CLK_OP_I);
+    SRU(DAI0_PB04_O,    SRC2_FS_OP_I);
+    SRU(SRC2_DAT_OP_O,  DAI0_PB01_I);
 }
 
 #define SAM_ADAU1761_I2C_ADDR  (0x38)
@@ -828,7 +881,7 @@ void adau1761_sport_init(APP_CONTEXT *context)
     SPORT_SIMPLE_RESULT sportResult;
 
     /* SPORT0A: CODEC data out */
-    sportCfg = cfgTDM8x1;
+    sportCfg = cfgI2Sx1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_TX;
     sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_MASTER;
     memcpy(sportCfg.dataBuffers, context->codecAudioOut, sizeof(sportCfg.dataBuffers));
@@ -842,7 +895,7 @@ void adau1761_sport_init(APP_CONTEXT *context)
 
 
     /* SPORT0B: CODEC data in */
-    sportCfg = cfgTDM8x1;
+    sportCfg = cfgI2Sx1;
     sportCfg.dataDir = SPORT_SIMPLE_DATA_DIR_RX;
     sportCfg.fsDir = SPORT_SIMPLE_FS_DIR_SLAVE;
     memcpy(sportCfg.dataBuffers, context->codecAudioIn, sizeof(sportCfg.dataBuffers));
@@ -888,19 +941,6 @@ void adau1761_init(APP_CONTEXT *context)
 /**************************************************************************
  * SPDIF Init
  *************************************************************************/
-SPORT_SIMPLE_CONFIG cfgI2Sx1 = {
-    .clkDir = SPORT_SIMPLE_CLK_DIR_SLAVE,
-    .fsDir = SPORT_SIMPLE_FS_DIR_MASTER,
-    .dataDir = SPORT_SIMPLE_DATA_DIR_UNKNOWN,
-    .bitClkOptions = SPORT_SIMPLE_CLK_FALLING,
-    .fsOptions = SPORT_SIMPLE_FS_OPTION_INV | SPORT_SIMPLE_FS_OPTION_EARLY |
-                 SPORT_SIMPLE_FS_OPTION_50,
-    .tdmSlots = SPORT_SIMPLE_TDM_2,
-    .wordSize = SPORT_SIMPLE_WORD_SIZE_32BIT,
-    .dataEnable = SPORT_SIMPLE_ENABLE_PRIMARY,
-    .frames = SYSTEM_BLOCK_SIZE,
-};
-
 /* PCGA generates 12.288 MHz CLK from 24.576 MCLK/BCLK */
 static void spdif_cfg_hfclk(void)
 {
@@ -919,14 +959,18 @@ static void spdif_cfg_bclk(void)
         .pcg = PCG_B,                    // PCG B
         .clk_src = PCG_SRC_DAI_PIN,      // Sourced from DAI
         .clk_in_dai_pin = DAI0_MCLK_PIN, // Sourced from DAI pin 6
-        .lrclk_clocks_per_frame = 256,   // Not used
-        .sync_to_fs = false
+        .fs_in_dai_pin = DAI0_MCLK_PIN,  // Sourced from DAI pin 6
+        .lrclk_clocks_per_frame = 64,    // Stereo I2S
+        .sync_to_fs = true
     };
 
     /* Configure the PCG BCLK depending on the cfgI2Sx1 SPORT config */
     pcg_b.bitclk_div =
         SYSTEM_MCLK_RATE / (cfgI2Sx1.wordSize * cfgI2Sx1.tdmSlots * SYSTEM_SAMPLE_RATE);
     assert(pcg_b.bitclk_div > 0);
+
+    /* Shift Fs by half of a bit clock (Fs on falling edge of clk) */
+    pcg_b.fs_phase = pcg_b.bitclk_div / 2;
 
     /* This sets everything up */
     pcg_open(&pcg_b);
@@ -1019,8 +1063,9 @@ static void spdif_sport_deinit(APP_CONTEXT *context)
 
 static void spdif_asrc_init(void)
 {
-    // Configure and enable SRC 0/1
-    *pREG_ASRC0_CTL01 =
+    // Configure and enable SRC 0
+    *pREG_ASRC0_CTL01 &= 0xFFFF0000;
+    *pREG_ASRC0_CTL01 |=
         BITM_ASRC_CTL01_EN0 |                // Enable SRC0
         (0x1 << BITP_ASRC_CTL01_SMODEIN0) |  // Input mode = I2S
         (0x1 << BITP_ASRC_CTL01_SMODEOUT0) | // Output mode = I2S

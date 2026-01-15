@@ -19,6 +19,7 @@
 
 /* Simple driver includes */
 #include "sport_simple.h"
+#include "pcg_simple.h"
 
 /* Application includes */
 #include "context.h"
@@ -70,6 +71,25 @@ void tdm_disable(APP_CONTEXT *context)
 void tdm_enable(APP_CONTEXT *context)
 {
     *pREG_PADS0_DAI1_IE |= TDM_ENABLE_MASK;
+}
+
+static void sru_config_tdm_cross_clk(void)
+{
+    /* Configure static PCG C parameters */
+    PCG_SIMPLE_CONFIG pcg_c = {
+        .pcg = PCG_C,                    // PCG C
+        .clk_src = PCG_SRC_DAI_PIN,      // Sourced from DAI
+        .clk_in_dai_pin = 3,             // Sourced from DAI pin 3
+        .lrclk_clocks_per_frame = 256,   // Not used
+        .sync_to_fs = false
+    };
+
+    /* Configure a 3.702 MHz I2S BCLK from the 6.144 MHz TDM BCLK */
+    pcg_c.bitclk_div = 2;
+
+    /* This sets everything up */
+    pcg_open(&pcg_c);
+    pcg_enable(PCG_C, true);
 }
 
 static void sru_config_tdm_slave(void)
@@ -152,6 +172,7 @@ void tdm_init(APP_CONTEXT *context)
 
     /* Configure the DAI routing */
     sru_config_tdm_slave();
+    sru_config_tdm_cross_clk();
 
     /* Initialize the TDM SPORTs */
     tdm_sport_init(context);

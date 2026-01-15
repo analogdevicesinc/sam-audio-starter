@@ -28,11 +28,11 @@ void codecAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
     /* Clear the contents */
     memset(buffer, 0, maxSize);
 
-    /* This is the CLOCK_DOMAIN_SYSTEM "out" clock source */
+    /* Process audio */
     processAudio(context, CLOCK_DOMAIN_BITM_CODEC_OUT, STREAM_ID_CODEC_OUT,
         CODEC_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, true,
-        true, false);
+        false, false);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();
@@ -45,11 +45,11 @@ void codecAudioIn(void *buffer, uint32_t size, void *usrPtr)
     /* Track ISR CPU load */
     cpuLoadISREnter();
 
-    /* This is the CLOCK_DOMAIN_SYSTEM "in" clock source */
+    /* Process audio */
     processAudio(context, CLOCK_DOMAIN_BITM_CODEC_IN, STREAM_ID_CODEC_IN,
         CODEC_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, false,
-        true, true);
+        false, true);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();

@@ -81,8 +81,8 @@
 #define WAV_MAX_CHANNELS               (64)
 #define VU_MAX_CHANNELS                (64)
 
-#define CODEC_AUDIO_CHANNELS           (8)
-#define CODEC_DMA_CHANNELS             (8)
+#define CODEC_AUDIO_CHANNELS           (2)
+#define CODEC_DMA_CHANNELS             (2)
 
 #define SPDIF_AUDIO_CHANNELS           (2)
 #define SPDIF_DMA_CHANNELS             (2)

@@ -112,8 +112,8 @@ bool clock_domain_ready(APP_CONTEXT *context, CLOCK_DOMAIN domain)
 
 void clock_domain_init(APP_CONTEXT *context)
 {
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_CODEC_IN);
-    clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_CODEC_OUT);
+    clock_domain_set(context, CLOCK_DOMAIN_TDM, CLOCK_DOMAIN_BITM_CODEC_IN);
+    clock_domain_set(context, CLOCK_DOMAIN_TDM, CLOCK_DOMAIN_BITM_CODEC_OUT);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SPDIF_IN);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_SPDIF_OUT);
     clock_domain_set(context, CLOCK_DOMAIN_SYSTEM, CLOCK_DOMAIN_BITM_USB_RX);

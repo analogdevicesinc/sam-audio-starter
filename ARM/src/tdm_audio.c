@@ -20,8 +20,7 @@
 #include "clock_domain.h"
 #include "route.h"
 
-#include "gpio_pins.h"
-
+/* This is the CLOCK_DOMAIN_TDM "out" clock source */
 void tdmAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
 {
     APP_CONTEXT *context = (APP_CONTEXT *)usrPtr;
@@ -62,6 +61,9 @@ void tdmAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
  * out to D2 in the following format
  *
  *  X, Y, Z, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+ *
+ * This is the CLOCK_DOMAIN_TDM "in" clock source
+ *
  */
 void tdmAudioIn(void *buffer, uint32_t size, void *usrPtr)
 {
