@@ -28,11 +28,11 @@ void spdifAudioOut(void *buffer, uint32_t maxSize, void *usrPtr)
     /* Clear the contents */
     memset(buffer, 0, maxSize);
 
-    /* Process audio */
+    /* This is the CLOCK_DOMAIN_SYSTEM "out" clock source */
     processAudio(context, CLOCK_DOMAIN_BITM_SPDIF_OUT, STREAM_ID_SPDIF_OUT,
         SPDIF_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, true,
-        false, false);
+        true, false);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();
@@ -45,11 +45,11 @@ void spdifAudioIn(void *buffer, uint32_t maxSize, void *usrPtr)
     /* Track ISR CPU load */
     cpuLoadISREnter();
 
-    /* Process audio */
+    /* This is the CLOCK_DOMAIN_SYSTEM "in" clock source */
     processAudio(context, CLOCK_DOMAIN_BITM_SPDIF_IN, STREAM_ID_SPDIF_IN,
         SPDIF_DMA_CHANNELS, SYSTEM_BLOCK_SIZE, sizeof(SYSTEM_AUDIO_TYPE),
         buffer, false,
-        false, true);
+        true, true);
 
     /* Track ISR CPU load */
     cpuLoadISRExit();

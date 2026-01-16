@@ -15,6 +15,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* Simple driver includes */
+#include "sport_simple.h"
+
 /* Project includes */
 #include "context.h"
 #include "gpio_pins.h"
@@ -54,5 +57,13 @@ void audio_routing_init(APP_CONTEXT *context);
 
 void system_reset(APP_CONTEXT *context);
 int sam_hw_version(APP_CONTEXT *context);
+
+sSPORT *single_sport_init(SPORT_SIMPLE_PORT sport,
+    SPORT_SIMPLE_CONFIG *cfg, SPORT_SIMPLE_AUDIO_CALLBACK cb,
+    void **pingPongPtrs, unsigned *pingPongLen, void *usrPtr,
+    bool cached, SPORT_SIMPLE_RESULT *result);
+
+void single_sport_deinit(sSPORT **sportHandle,
+    void **pingPongPtrs, unsigned *pingPongLen);
 
 #endif
